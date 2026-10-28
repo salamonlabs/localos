@@ -1,0 +1,44 @@
+# --- Avvio live ---
+live-boot
+live-config
+live-config-systemd
+user-setup
+sudo
+
+# --- Base di sistema ---
+locales
+keyboard-configuration
+console-setup
+dbus-user-session
+polkitd
+python3
+
+# --- Interfaccia: compositor kiosk + browser ---
+cage
+firefox-esr
+firefox-esr-l10n-it
+webext-ublock-origin-firefox
+fonts-noto-core
+fonts-noto-color-emoji
+# Decodifica video (H.264/AAC) per i siti che non usano VP9/AV1
+libavcodec61
+
+# --- Rete e privacy ---
+network-manager
+# Necessario per il Wi-Fi
+wpasupplicant
+wireless-regdb
+systemd-resolved
+nftables
+ca-certificates
+# Ora esatta con NTS (sincronizzazione autenticata e cifrata)
+chrony
+
+# --- Prestazioni ---
+# Swap compressa in RAM invece che su disco
+systemd-zram-generator
+
+# --- Audio ---
+pipewire
+pipewire-pulse
+wireplumber

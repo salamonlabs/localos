@@ -1,0 +1,13 @@
+#!/bin/bash
+# Sessione grafica di local:os: aspetta la shell locale e apre il browser.
+export MOZ_ENABLE_WAYLAND=1
+
+# Attende fino a ~10 secondi che la shell web risponda sulla porta 8088
+for _ in $(seq 1 50); do
+  if (exec 3<>/dev/tcp/127.0.0.1/8088) 2>/dev/null; then
+    break
+  fi
+  sleep 0.2
+done
+
+exec firefox-esr

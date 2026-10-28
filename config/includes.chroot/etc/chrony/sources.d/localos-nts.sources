@@ -1,0 +1,4 @@
+# Server dell'ora con NTS: l'ora ricevuta è autenticata e non può essere falsificata
+server time.cloudflare.com iburst nts
+server nts.netnod.se iburst nts
+server ptbtime1.ptb.de iburst nts

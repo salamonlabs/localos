@@ -1,0 +1,18 @@
+#!/bin/sh
+# Configurazione di live-build per local:os.
+# Viene richiamato automaticamente da "lb config".
+set -e
+
+lb config noauto \
+  --distribution trixie \
+  --architectures amd64 \
+  --archive-areas "main non-free-firmware" \
+  --firmware-chroot true \
+  --apt-recommends false \
+  --debian-installer none \
+  --binary-images iso-hybrid \
+  --memtest none \
+  --iso-application "localos" \
+  --iso-volume "localos" \
+  --bootappend-live "boot=live components username=localos hostname=localos locales=it_IT.UTF-8 keyboard-layouts=it timezone=Europe/Rome quiet splash" \
+  "${@}"

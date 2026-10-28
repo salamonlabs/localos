@@ -1,0 +1,34 @@
+#!/bin/sh
+# Eseguito dentro il sistema in costruzione, alla fine della fase chroot.
+set -e
+
+# Servizi di sistema
+systemctl enable nftables.service
+systemctl enable NetworkManager.service
+systemctl enable systemd-resolved.service
+
+# Shell web locale: avviata per ogni utente che effettua il login
+systemctl --global enable localos-shell.service
+
+chmod 0755 /usr/local/bin/localos-session /usr/lib/localos/localos-shell.py
+
+# Le policy del browser vanno in tutti i percorsi che Firefox ESR può leggere
+mkdir -p /etc/firefox-esr/policies /usr/lib/firefox-esr/distribution
+ln -sf /etc/firefox/policies/policies.json /etc/firefox-esr/policies/policies.json
+ln -sf /etc/firefox/policies/policies.json /usr/lib/firefox-esr/distribution/policies.json
+
+# Ora: solo i server NTS di local:os (disattiva il pool predefinito e i server suggeriti dal router)
+sed -i -e 's/^pool /#pool /' -e 's|^sourcedir /run/chrony-dhcp|#sourcedir /run/chrony-dhcp|' /etc/chrony/chrony.conf
+systemctl enable chrony.service
+
+# Versione
+echo "0.2.1" > /etc/localos-release
+
+# Lingua italiana di default
+sed -i 's/^# *it_IT.UTF-8/it_IT.UTF-8/' /etc/locale.gen
+locale-gen
+
+# Alleggerimento: via manuali, documentazione e cache apt.
+# I file di licenza (/usr/share/doc/*/copyright) restano: servono per ridistribuire.
+find /usr/share/doc -type f ! -name copyright -delete
+rm -rf /usr/share/man/* /var/cache/apt/archives/*.deb

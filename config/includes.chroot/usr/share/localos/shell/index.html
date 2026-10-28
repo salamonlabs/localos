@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="localos-token" content="__LOCALOS_TOKEN__">
+  <title>local:os</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="favicon.ico" sizes="16x16 32x32">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="bar">
+    <picture class="brand">
+      <source srcset="logo-dark.svg" media="(prefers-color-scheme: dark)">
+      <img src="logo-light.svg" alt="local:os" width="117" height="30">
+    </picture>
+    <button id="quick-toggle" class="status" aria-expanded="false" aria-controls="quick">
+      <span id="st-wifi">Wi-Fi —</span>
+      <span id="st-vol">Audio —</span>
+      <span id="st-bat" hidden></span>
+      <span id="st-clock" class="clock">--:--</span>
+    </button>
+  </header>
+
+  <main class="home">
+    <p id="date" class="date"></p>
+    <h1 id="greeting" class="greeting">Ciao</h1>
+
+    <form id="search" class="search" autocomplete="off">
+      <input id="q" type="text" placeholder="Cerca con DuckDuckGo o scrivi un indirizzo" aria-label="Cerca o scrivi un indirizzo" autofocus>
+    </form>
+
+    <section class="apps-wrap">
+      <div class="apps-head">
+        <h2>Le tue app web</h2>
+        <button id="edit-apps" class="link">Modifica</button>
+      </div>
+      <ul id="apps" class="apps"></ul>
+      <form id="add-app" class="add-app" hidden>
+        <input id="app-name" type="text" placeholder="Nome" maxlength="24" required>
+        <input id="app-url" type="text" placeholder="Indirizzo, es. cryptpad.fr" required>
+        <button type="submit">Aggiungi</button>
+      </form>
+    </section>
+
+    <footer class="foot">
+      <p class="payoff">Libero. Locale. Tuo.</p>
+      <p class="note">Nessuna telemetria · DNS cifrato · Tracker bloccati</p>
+    </footer>
+  </main>
+
+  <aside id="quick" class="quick" hidden>
+    <section>
+      <div class="q-head">
+        <h3>Wi-Fi</h3>
+        <button id="wifi-scan" class="link">Aggiorna</button>
+      </div>
+      <ul id="wifi-list" class="wifi-list"><li class="muted">Caricamento…</li></ul>
+    </section>
+
+    <section>
+      <div class="q-head">
+        <h3>Volume</h3>
+        <button id="mute" class="link">Muto</button>
+      </div>
+      <input id="volume" type="range" min="0" max="100" step="5" aria-label="Volume">
+    </section>
+
+    <section class="power">
+      <button id="reboot" class="ghost">Riavvia</button>
+      <button id="poweroff" class="danger">Spegni</button>
+    </section>
+    <p id="quick-msg" class="msg" role="status"></p>
+  </aside>
+
+  <script src="app.js"></script>
+</body>
+</html>
