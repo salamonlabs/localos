@@ -1,0 +1,38 @@
+   name: Costruisci ISO
+
+   on:
+     push:
+       branches: [main]
+     workflow_dispatch: {}
+
+   # Permessi minimi: la build può solo leggere il codice, non modificare il repository
+   permissions:
+     contents: read
+
+   jobs:
+     build:
+       runs-on: ubuntu-latest
+       container:
+         image: debian:trixie
+         options: --privileged
+       steps:
+         - uses: actions/checkout@v5
+
+         - name: Installa live-build
+           run: |
+             apt-get update
+             apt-get install -y live-build
+
+         - name: Costruisci l'immagine
+           run: sh ./build.sh
+
+         - name: Calcola checksum
+           run: sha256sum localos-amd64.iso > localos-amd64.iso.sha256
+
+         - uses: actions/upload-artifact@v4
+           with:
+             name: localos-iso
+             path: |
+               localos-amd64.iso
+               localos-amd64.iso.sha256
+               build.log
