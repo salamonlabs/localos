@@ -12,6 +12,7 @@ import os
 import re
 import secrets
 import subprocess
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -21,7 +22,14 @@ SHELL_DIR = Path(os.environ.get("LOCALOS_SHELL_DIR", "/usr/share/localos/shell")
 TOKEN = secrets.token_urlsafe(32)
 ALLOWED_HOSTS = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
 ALLOWED_ORIGINS = {f"http://{h}" for h in ALLOWED_HOSTS}
-MAX_BODY = 16 * 1024
+MAX_BODY = 512 * 1024                     # le note possono essere lunghe
+DOCS = Path(os.environ.get("LOCALOS_DOCS", Path.home() / "Documenti"))
+NOTES = DOCS / "Note"
+BROWSER = os.environ.get("LOCALOS_BROWSER", "firefox-esr")
+WEB_PROFILE = os.environ.get("LOCALOS_WEB_PROFILE", str(Path.home() / ".local/share/localos/web-profile"))
+PERSIST_HELPER = os.environ.get("LOCALOS_PERSIST_HELPER", "/usr/lib/localos/localos-persistence")
+SUDO = os.environ.get("LOCALOS_SUDO", "sudo -n").split()   # solo i test lo cambiano
+NOTE_NAME = re.compile(r"^[^/\\\x00-\x1f.][^/\\\x00-\x1f]{0,79}$")
 
 MIME = {
     ".html": "text/html; charset=utf-8",
@@ -104,8 +112,73 @@ def battery():
     return None
 
 
+def version():
+    try:
+        return Path("/etc/localos-release").read_text().strip()
+    except OSError:
+        return "sviluppo"
+
+
+def persistence_active():
+    try:
+        return "/run/live/persistence/" in Path("/proc/mounts").read_text()
+    except OSError:
+        return False
+
+
 def status():
-    return {"wifi": wifi_networks(), "volume": volume(), "battery": battery()}
+    return {"wifi": wifi_networks(), "volume": volume(), "battery": battery(),
+            "version": version(), "persistent": persistence_active()}
+
+
+# ---------------------------------------------------------------- documenti e note
+
+def safe_doc(rel):
+    """Percorso dentro Documenti, oppure None se prova a uscirne."""
+    target = (DOCS / str(rel)).resolve()
+    root = DOCS.resolve()
+    return target if target == root or root in target.parents else None
+
+
+def list_files():
+    DOCS.mkdir(parents=True, exist_ok=True)
+    items = []
+    root = DOCS.resolve()
+    for path in sorted(root.rglob("*")):
+        rel = path.relative_to(root)
+        if any(part.startswith(".") for part in rel.parts) or len(rel.parts) > 3:
+            continue
+        if path.is_file():
+            st = path.stat()
+            items.append({"path": str(rel), "name": path.name, "size": st.st_size,
+                          "mtime": int(st.st_mtime), "folder": str(rel.parent) if rel.parent != Path(".") else ""})
+        if len(items) >= 500:
+            break
+    items.sort(key=lambda i: -i["mtime"])
+    return items
+
+
+def note_path(name):
+    name = str(name).strip()
+    if name.lower().endswith(".md"):
+        name = name[:-3]
+    if not NOTE_NAME.match(name):
+        return None
+    return NOTES / f"{name}.md"
+
+
+def list_notes():
+    NOTES.mkdir(parents=True, exist_ok=True)
+    out = []
+    for p in NOTES.glob("*.md"):
+        try:
+            text = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        first = next((l.strip("# ").strip() for l in text.splitlines() if l.strip()), "")
+        out.append({"name": p.stem, "mtime": int(p.stat().st_mtime), "preview": first[:90]})
+    out.sort(key=lambda n: -n["mtime"])
+    return out
 
 
 # ---------------------------------------------------------------- azioni
@@ -148,7 +221,111 @@ def act_power(data):
     return {"ok": code == 0, "error": err.strip() or None}
 
 
+def spawn_browser(target):
+    """Apre un indirizzo in una finestra normale del browser (profilo web, separato dal desktop)."""
+    try:
+        subprocess.Popen([BROWSER, "--profile", WEB_PROFILE, "--new-window", target],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+        return {"ok": True}
+    except OSError as e:
+        return {"ok": False, "error": f"Impossibile aprire il browser: {e}"}
+
+
+def act_open(data):
+    if "url" in data:
+        url = str(data["url"]).strip()[:2048]
+        if not re.match(r"^https?://", url, re.I):
+            return {"ok": False, "error": "Indirizzo non valido"}
+        return spawn_browser(url)
+    if "file" in data:
+        path = safe_doc(data["file"])
+        if path is None or not path.is_file():
+            return {"ok": False, "error": "File non trovato"}
+        return spawn_browser(path.as_uri())
+    return {"ok": False, "error": "Niente da aprire"}
+
+
+def act_sync_start(_):
+    """Avvia Syncthing solo su richiesta (nessuna connessione finché non lo apri)."""
+    code, _, err = run(["systemctl", "--user", "start", "syncthing.service"])
+    return {"ok": code == 0, "error": err.strip() or None}
+
+
+def act_files(_):
+    return {"ok": True, "files": list_files(), "root": str(DOCS)}
+
+
+def act_notes_list(_):
+    return {"ok": True, "notes": list_notes()}
+
+
+def act_notes_read(data):
+    p = note_path(data.get("name", ""))
+    if p is None or not p.is_file():
+        return {"ok": False, "error": "Nota non trovata"}
+    return {"ok": True, "name": p.stem, "text": p.read_text(encoding="utf-8", errors="replace")}
+
+
+def act_notes_write(data):
+    p = note_path(data.get("name", ""))
+    if p is None:
+        return {"ok": False, "error": "Nome non valido: niente barre e non può iniziare con un punto"}
+    text = str(data.get("text", ""))
+    old = note_path(data["previous"]) if data.get("previous") else None
+    if data.get("create") and p.exists():
+        return {"ok": False, "error": "Esiste già una nota con questo nome"}
+    NOTES.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_name(f".{p.name}.tmp")
+    tmp.write_text(text, encoding="utf-8")
+    os.replace(tmp, p)                       # scrittura atomica: niente note a metà
+    if old is not None and old != p and old.is_file():
+        old.unlink()                         # rinomina
+    return {"ok": True, "name": p.stem, "saved": int(time.time())}
+
+
+def act_notes_delete(data):
+    p = note_path(data.get("name", ""))
+    if p is None or not p.is_file():
+        return {"ok": False, "error": "Nota non trovata"}
+    p.unlink()
+    return {"ok": True}
+
+
+def persistence_helper(action, stdin=None, timeout=20):
+    try:
+        r = subprocess.run([*SUDO, PERSIST_HELPER, action], input=stdin,
+                           capture_output=True, timeout=timeout)
+        return json.loads(r.stdout.decode() or "{}") or {
+            "ok": False, "state": "unavailable",
+            "message": "Funzione disponibile solo con local:os avviato dalla chiavetta"}
+    except (OSError, ValueError, subprocess.TimeoutExpired) as e:
+        return {"ok": False, "state": "unavailable", "message": f"Controllo non riuscito: {e}"}
+
+
+def act_persistence_check(_):
+    if persistence_active():
+        return {"state": "active", "message": "Memoria persistente attiva"}
+    return persistence_helper("check")
+
+
+def act_persistence_create(data):
+    phrase = str(data.get("phrase", ""))
+    if len(phrase) < 8:
+        return {"ok": False, "message": "La frase segreta deve avere almeno 8 caratteri"}
+    return persistence_helper("create", stdin=phrase.encode("utf-8"), timeout=300)
+
+
 ACTIONS = {
+    "/api/open": act_open,
+    "/api/files": act_files,
+    "/api/sync/start": act_sync_start,
+    "/api/notes/list": act_notes_list,
+    "/api/notes/read": act_notes_read,
+    "/api/notes/write": act_notes_write,
+    "/api/notes/delete": act_notes_delete,
+    "/api/persistence/check": act_persistence_check,
+    "/api/persistence/create": act_persistence_create,
     "/api/wifi/scan": act_wifi_scan,
     "/api/wifi/connect": act_wifi_connect,
     "/api/volume": act_volume,

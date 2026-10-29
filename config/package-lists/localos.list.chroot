@@ -34,6 +34,15 @@ ca-certificates
 # Ora esatta con NTS (sincronizzazione autenticata e cifrata)
 chrony
 
+# --- Memoria persistente cifrata (0.3) ---
+# cryptsetup anche nell'initramfs: chiede la frase segreta all'avvio
+cryptsetup
+cryptsetup-initramfs
+
+# --- Local-first (0.3) ---
+# Sincronizzazione delle cartelle tra i propri dispositivi, da pari a pari
+syncthing
+
 # --- Prestazioni ---
 # Swap compressa in RAM invece che su disco
 systemd-zram-generator

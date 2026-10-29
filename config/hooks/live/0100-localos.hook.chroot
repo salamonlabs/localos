@@ -7,10 +7,21 @@ systemctl enable nftables.service
 systemctl enable NetworkManager.service
 systemctl enable systemd-resolved.service
 
-# Shell web locale: avviata per ogni utente che effettua il login
-systemctl --global enable localos-shell.service
+# La shell web locale ora parte dalla sessione grafica (localos-session), non più come servizio:
+# così può aprire le finestre del browser.
+systemctl --global disable localos-shell.service 2>/dev/null || true
+rm -f /etc/systemd/user/localos-shell.service
 
-chmod 0755 /usr/local/bin/localos-session /usr/lib/localos/localos-shell.py
+# Syncthing NON parte da solo: lo avvia l'app Sincronizza quando la apri
+# (così chi non lo usa non fa nessuna connessione verso i suoi server).
+systemctl --global disable syncthing.service 2>/dev/null || true
+
+chmod 0755 /usr/local/bin/localos-session /usr/lib/localos/localos-shell.py /usr/lib/localos/localos-persistence
+chmod 0440 /etc/sudoers.d/localos
+
+# Memoria cifrata: cryptsetup sempre incluso nell'initramfs, anche senza /etc/crypttab
+echo "CRYPTSETUP=y" >> /etc/cryptsetup-initramfs/conf-hook
+update-initramfs -u -k all || echo "AVVISO local:os: update-initramfs non riuscito, la memoria cifrata potrebbe non aprirsi all'avvio"
 
 # Le policy del browser vanno in tutti i percorsi che Firefox ESR può leggere
 mkdir -p /etc/firefox-esr/policies /usr/lib/firefox-esr/distribution
@@ -22,7 +33,7 @@ sed -i -e 's/^pool /#pool /' -e 's|^sourcedir /run/chrony-dhcp|#sourcedir /run/c
 systemctl enable chrony.service
 
 # Versione
-echo "0.2.1" > /etc/localos-release
+echo "0.3" > /etc/localos-release
 
 # Lingua italiana di default
 sed -i 's/^# *it_IT.UTF-8/it_IT.UTF-8/' /etc/locale.gen

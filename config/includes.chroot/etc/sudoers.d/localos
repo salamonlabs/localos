@@ -1,0 +1,2 @@
+# local:os: l'utente può creare la memoria cifrata (solo questo comando, senza password)
+localos ALL=(root) NOPASSWD: /usr/lib/localos/localos-persistence

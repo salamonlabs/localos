@@ -10,67 +10,67 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <header class="bar">
-    <span></span>
-    <button id="quick-toggle" class="status" aria-expanded="false" aria-controls="quick">
-      <span id="st-wifi">Wi-Fi —</span>
-      <span id="st-vol">Audio —</span>
-      <span id="st-bat" hidden></span>
-      <span id="st-clock" class="clock">--:--</span>
+  <header class="menubar" aria-label="Barra di sistema">
+    <button class="mb-btn mb-orbit" id="mb-orbit" aria-haspopup="menu" aria-expanded="false" aria-label="Menu local:os">
+      <img src="favicon.svg" alt="" width="18" height="18">
+    </button>
+    <span class="mb-btn mb-app" id="mb-app">Desktop</span>
+    <span class="mb-spacer"></span>
+    <button class="mb-btn" id="mb-search" aria-label="Cerca">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    </button>
+    <button class="mb-btn" id="mb-wifi" aria-haspopup="menu" aria-expanded="false" aria-label="Wi-Fi">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M2.5 9a14 14 0 0 1 19 0"/><path d="M5.5 12.5a9.5 9.5 0 0 1 13 0"/><path d="M8.7 16a5 5 0 0 1 6.6 0"/><circle cx="12" cy="19.3" r="1.1" fill="currentColor" stroke="none"/></svg>
+      <span class="mb-hide-sm" id="mb-wifi-name">Non connesso</span>
+    </button>
+    <button class="mb-btn" id="mb-vol" aria-haspopup="menu" aria-expanded="false" aria-label="Volume">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path id="vol-wave" d="M15.5 9a4 4 0 0 1 0 6M18.3 6.5a7.6 7.6 0 0 1 0 11"/></svg>
+    </button>
+    <button class="mb-btn" id="mb-bat" aria-haspopup="menu" aria-expanded="false" aria-label="Batteria" hidden>
+      <svg class="bat" viewBox="0 0 28 16" fill="none" aria-hidden="true"><rect x="1" y="2" width="22" height="12" rx="3.2" stroke="currentColor" stroke-width="1.6"/><rect x="24.3" y="5.5" width="2.2" height="5" rx="1" fill="currentColor"/><rect id="bat-fill" x="3.2" y="4.2" width="14" height="7.6" rx="1.6" fill="currentColor"/></svg>
+      <span class="mb-hide-sm" id="mb-bat-pct"></span>
+    </button>
+    <button class="mb-btn mb-clock" id="mb-clock" aria-label="Data e ora">--:--</button>
+    <button class="mb-btn" id="mb-power" aria-haspopup="menu" aria-expanded="false" aria-label="Spegni o riavvia">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 3v9"/><path d="M6.3 6.6a8 8 0 1 0 11.4 0"/></svg>
     </button>
   </header>
 
-  <main class="home">
-    <img class="hero" src="logo-vertical.svg" alt="local:os" width="182" height="140">
-    <p id="date" class="date"></p>
-    <h1 id="greeting" class="greeting">Ciao</h1>
-
-    <form id="search" class="search" autocomplete="off">
-      <input id="q" type="text" placeholder="Cerca con DuckDuckGo o scrivi un indirizzo" aria-label="Cerca o scrivi un indirizzo" autofocus>
-    </form>
-
-    <section class="apps-wrap">
-      <div class="apps-head">
-        <h2>Le tue app web</h2>
-        <button id="edit-apps" class="link">Modifica</button>
-      </div>
-      <ul id="apps" class="apps"></ul>
-      <form id="add-app" class="add-app" hidden>
-        <input id="app-name" type="text" placeholder="Nome" maxlength="24" required>
-        <input id="app-url" type="text" placeholder="Indirizzo, es. cryptpad.fr" required>
-        <button type="submit">Aggiungi</button>
-      </form>
-    </section>
-
-    <footer class="foot">
-      <p class="payoff">Libero. Locale. Tuo.</p>
-      <p class="note">Nessuna telemetria · DNS cifrato · Tracker bloccati</p>
-    </footer>
+  <main class="desktop" aria-label="Desktop">
+    <p class="desk-date" id="desk-date"></p>
+    <p class="desk-time" id="desk-time">--:--</p>
+    <p class="desk-greet" id="desk-greet">Ciao</p>
+    <p class="desk-hint">
+      <button class="hint-btn" id="hint-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        Cerca app, note, file e web <kbd>Ctrl</kbd><kbd>Spazio</kbd>
+      </button>
+    </p>
+    <p class="desk-persist" id="desk-persist" hidden>
+      <button class="link-btn" id="persist-cta">La memoria non è attiva: le modifiche si perdono allo spegnimento. Attivala</button>
+    </p>
   </main>
 
-  <aside id="quick" class="quick" hidden>
-    <section>
-      <div class="q-head">
-        <h3>Wi-Fi</h3>
-        <button id="wifi-scan" class="link">Aggiorna</button>
-      </div>
-      <ul id="wifi-list" class="wifi-list"><li class="muted">Caricamento…</li></ul>
-    </section>
+  <div id="windows"></div>
 
-    <section>
-      <div class="q-head">
-        <h3>Volume</h3>
-        <button id="mute" class="link">Muto</button>
-      </div>
-      <input id="volume" type="range" min="0" max="100" step="5" aria-label="Volume">
-    </section>
+  <nav class="dock-wrap" aria-label="Dock">
+    <div class="dock" id="dock"></div>
+  </nav>
 
-    <section class="power">
-      <button id="reboot" class="ghost">Riavvia</button>
-      <button id="poweroff" class="danger">Spegni</button>
-    </section>
-    <p id="quick-msg" class="msg" role="status"></p>
-  </aside>
+  <div id="menu" class="menu" role="menu" hidden></div>
+
+  <div class="spot-back" id="spot-back" hidden>
+    <div class="spot" role="dialog" aria-modal="true" aria-label="Cerca">
+      <div class="spot-field">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="spot-input" type="text" placeholder="Cerca app, note, file o scrivi un indirizzo" autocomplete="off" aria-label="Cerca">
+      </div>
+      <ul class="spot-list" id="spot-list" role="listbox"></ul>
+      <div class="spot-foot"><span><kbd>↑</kbd> <kbd>↓</kbd> scegli</span><span><kbd>Invio</kbd> apri</span><span><kbd>Esc</kbd> chiudi</span></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" hidden></div>
 
   <script src="app.js"></script>
 </body>

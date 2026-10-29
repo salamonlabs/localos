@@ -57,7 +57,7 @@
       "Locked": true
     },
     "Homepage": {
-      "URL": "http://127.0.0.1:8088/",
+      "URL": "https://duckduckgo.com/",
       "Locked": true,
       "StartPage": "homepage"
     },
@@ -67,24 +67,78 @@
       "PreventInstalls": true
     },
     "Preferences": {
-      "browser.newtabpage.enabled": { "Value": false, "Status": "locked" },
-      "browser.startup.homepage_override.mstone": { "Value": "ignore", "Status": "locked" },
-      "geo.enabled": { "Value": false, "Status": "default" },
-      "media.peerconnection.ice.default_address_only": { "Value": true, "Status": "locked" },
-      "network.prefetch-next": { "Value": false, "Status": "locked" },
-      "network.dns.disablePrefetch": { "Value": true, "Status": "locked" },
-      "browser.send_pings": { "Value": false, "Status": "locked" },
-      "privacy.globalprivacycontrol.enabled": { "Value": true, "Status": "locked" },
-      "browser.tabs.warnOnClose": { "Value": false, "Status": "default" },
-      "browser.contentblocking.category": { "Value": "strict", "Status": "locked" },
-      "privacy.query_stripping.enabled": { "Value": true, "Status": "locked" },
-      "privacy.fingerprintingProtection": { "Value": true, "Status": "locked" },
-      "network.dns.echconfig.enabled": { "Value": true, "Status": "locked" },
-      "network.dns.http3_echconfig.enabled": { "Value": true, "Status": "locked" },
-      "network.http.referer.XOriginTrimmingPolicy": { "Value": 2, "Status": "locked" },
-      "cookiebanners.service.mode": { "Value": 1, "Status": "default" },
-      "cookiebanners.service.mode.privateBrowsing": { "Value": 1, "Status": "default" },
-      "browser.urlbar.suggest.searches": { "Value": false, "Status": "locked" }
+      "browser.newtabpage.enabled": {
+        "Value": false,
+        "Status": "locked"
+      },
+      "browser.startup.homepage_override.mstone": {
+        "Value": "ignore",
+        "Status": "locked"
+      },
+      "geo.enabled": {
+        "Value": false,
+        "Status": "default"
+      },
+      "media.peerconnection.ice.default_address_only": {
+        "Value": true,
+        "Status": "locked"
+      },
+      "network.prefetch-next": {
+        "Value": false,
+        "Status": "locked"
+      },
+      "network.dns.disablePrefetch": {
+        "Value": true,
+        "Status": "locked"
+      },
+      "browser.send_pings": {
+        "Value": false,
+        "Status": "locked"
+      },
+      "privacy.globalprivacycontrol.enabled": {
+        "Value": true,
+        "Status": "locked"
+      },
+      "browser.tabs.warnOnClose": {
+        "Value": false,
+        "Status": "default"
+      },
+      "browser.contentblocking.category": {
+        "Value": "strict",
+        "Status": "locked"
+      },
+      "privacy.query_stripping.enabled": {
+        "Value": true,
+        "Status": "locked"
+      },
+      "privacy.fingerprintingProtection": {
+        "Value": true,
+        "Status": "locked"
+      },
+      "network.dns.echconfig.enabled": {
+        "Value": true,
+        "Status": "locked"
+      },
+      "network.dns.http3_echconfig.enabled": {
+        "Value": true,
+        "Status": "locked"
+      },
+      "network.http.referer.XOriginTrimmingPolicy": {
+        "Value": 2,
+        "Status": "locked"
+      },
+      "cookiebanners.service.mode": {
+        "Value": 1,
+        "Status": "default"
+      },
+      "cookiebanners.service.mode.privateBrowsing": {
+        "Value": 1,
+        "Status": "default"
+      },
+      "browser.urlbar.suggest.searches": {
+        "Value": false,
+        "Status": "locked"
+      }
     }
   }
 }

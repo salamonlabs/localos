@@ -63,6 +63,17 @@ e aprire `http://127.0.0.1:8088` (Wi-Fi e volume risulteranno vuoti fuori da loc
 
 **Terminale per la diagnosi**: `Ctrl + Alt + F2` (utente `localos`, password `live`), poi `journalctl -b -p err --no-pager | tail -n 40`. Per tornare all'interfaccia: `Ctrl + Alt + F1`.
 
+## Memoria persistente
+
+Di default local:os è *live*: dimentica tutto allo spegnimento. Da **Impostazioni › Memoria persistente** si crea una memoria cifrata nello spazio libero della chiavetta:
+
+- viene aggiunta **una** partizione dopo l'immagine (tabella MBR, come nelle ISO Debian); il disco del computer non viene mai toccato;
+- la partizione è cifrata con LUKS2 (Argon2id, 256 MB di memoria: sicura ma sopportabile dai PC vecchi) e contiene un ext4 con etichetta `persistence`;
+- `persistence.conf` salva `/home` (Documenti, note, impostazioni, browser) e le reti Wi-Fi;
+- a ogni avvio live-boot chiede la frase segreta. **Senza frase i dati non si recuperano.** Riscrivere la chiavetta con balenaEtcher cancella la memoria.
+
+Lo script è `/usr/lib/localos/localos-persistence` (`check` / `create`); l'utente può eseguire solo quello come amministratore (`/etc/sudoers.d/localos`).
+
 ## Struttura
 
 ```
@@ -101,7 +112,7 @@ Lo **sfondo** della home è `branding/wallpaper/sfondo-1920x1080.jpg`: un'immagi
 
 Kit completo in `branding/localos-orbit-kit.zip` (regole d'uso in `06-guidelines/LEGGIMI.txt`).
 
-## Limiti attuali (versione 0.1)
+## Limiti attuali
 
 - Funziona **in modalità live**: le modifiche non restano dopo lo spegnimento. L'installazione su disco arriva nella Fase 4.
 - Solo **PC a 64 bit** (amd64): Debian non supporta più l'installazione a 32 bit.
@@ -124,16 +135,17 @@ Kit completo in `branding/localos-orbit-kit.zip` (regole d'uso in `06-guidelines
    - Da fare: AppArmor con profilo per il browser, liste uBlock extra, MAC casuale sulle reti pubbliche, pagina "Diagnostica"
    - *Eventuale*: "modalità anonima" opzionale con Tor Browser originale (non Tor di sistema: si perderebbe velocità e compatibilità, e un Firefox modificato su Tor è riconoscibile)
    - Provato su: Lenovo ThinkPad E14 (2023) – avvio con Secure Boot, Wi-Fi, ora NTS ed ECH verificati
-   - ✅ 0.2.1: nuovo nome local:os, identità visiva Orbit (home e menu di avvio), tastiera italiana – verificata sul Lenovo E14 ← siamo qui
-3. Versione 0.3 – local:os diventa **local-first**:
-   - Memoria persistente cifrata sulla chiavetta (o installazione su disco), con la cartella Documenti
-   - App locali che funzionano offline, servite da local:os: Note (Markdown), Disegno (Excalidraw), File
-   - I dati restano file in formati aperti (Markdown, immagini, PDF): nessun blocco, nessun cloud obbligatorio
-   - Sincronizzazione facoltativa tra dispositivi con Syncthing (da pari a pari, cifrata, senza server)
-   - Più avanti: app proprie con sincronizzazione CRDT (Automerge/Yjs) per modificare gli stessi dati da più dispositivi
-   - Shell web più completa: impostazioni (lingua, tastiera, luminosità), gestione download, aggiornamenti
-4. Installer su disco con cifratura completa (LUKS; Adiantum sui PC senza accelerazione AES) e pulizia di cookie/cronologia alla chiusura
-5. Aggiornamenti automatici e sistema di sola lettura con aggiornamenti A/B
+   - ✅ 0.2.1: nuovo nome local:os, identità visiva Orbit (home e menu di avvio), tastiera italiana, sfondo "onde di seta" nella home – verificata sul Lenovo E14
+3. Versione 0.3 – local:os diventa **local-first** ← siamo qui:
+   - Memoria persistente cifrata (LUKS2, Argon2id) nello spazio libero della chiavetta, creata da Impostazioni: ricorda Wi-Fi, impostazioni, note e file. La frase segreta si chiede all'avvio
+   - Nuova interfaccia desktop: barra di sistema (Wi-Fi, suono, batteria, ora, spegnimento), dock, ricerca con `Ctrl + Spazio`
+   - Il desktop gira in Firefox in modalità kiosk; i siti si aprono in finestre normali del browser sopra il desktop (profilo separato)
+   - App locali offline: **Note** (file Markdown in Documenti › Note), **File** (cartella Documenti), **Sincronizza** (Syncthing, da pari a pari), **Impostazioni**
+   - I dati restano file in formati aperti: nessun blocco, nessun cloud obbligatorio
+   - Da fare in 0.3.x: Disegno (Excalidraw offline), app proprie con sincronizzazione CRDT (Automerge/Yjs), impostazioni di lingua, tastiera e luminosità, gestione download e aggiornamenti
+4. Versione 0.4 – vero desktop leggero (labwc): barra e dock sempre visibili, siti e app in finestre
+5. Installer su disco con cifratura completa (LUKS; Adiantum sui PC senza accelerazione AES) e pulizia di cookie/cronologia alla chiusura
+6. Aggiornamenti automatici e sistema di sola lettura con aggiornamenti A/B
 
 ## Licenza
 

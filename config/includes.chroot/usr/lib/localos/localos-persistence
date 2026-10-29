@@ -1,0 +1,222 @@
+#!/usr/bin/python3 -I
+"""local:os – memoria persistente cifrata sulla chiavetta di avvio.
+
+Uso (come root, tramite sudo):
+  localos-persistence check            stato in JSON
+  localos-persistence create < frase   crea la memoria (la frase arriva da stdin, senza a capo)
+
+Cosa fa "create":
+  1. trova la chiavetta da cui è partito local:os;
+  2. aggiunge UNA partizione nello spazio libero dopo l'immagine (tabella MBR, come le ISO Debian);
+  3. la cifra con LUKS2, ci crea un file system ext4 con etichetta "persistence"
+     e scrive persistence.conf: live-boot la userà dal prossimo avvio.
+Non tocca mai il disco interno del computer né le partizioni esistenti.
+"""
+import json
+import os
+import struct
+import subprocess
+import sys
+import tempfile
+import time
+
+SECTOR = 512
+ALIGN = 2048                      # 1 MiB
+MIN_FREE = 1024 ** 3              # almeno 1 GiB libero
+MAPPER = "localos-persistence-new"
+PERSISTENCE_CONF = (
+    "/home union\n"
+    "/etc/NetworkManager/system-connections union\n"
+)
+TEST = os.environ.get("LOCALOS_PERSIST_TEST")   # solo per i test: percorso di un'immagine disco
+
+
+def run(cmd, data=None, check=True):
+    r = subprocess.run(cmd, input=data, capture_output=True)
+    if check and r.returncode != 0:
+        raise RuntimeError(f"{cmd[0]}: {r.stderr.decode(errors='replace').strip() or 'errore'}")
+    return r.stdout.decode(errors="replace").strip()
+
+
+def out(obj, code=0):
+    print(json.dumps(obj))
+    sys.exit(code)
+
+
+# ------------------------------------------------------------------ dispositivo
+
+def persistence_active():
+    try:
+        mounts = open("/proc/mounts").read()
+    except OSError:
+        return False
+    return "/run/live/persistence/" in mounts
+
+
+def boot_disk():
+    """Restituisce /dev/sdX della chiavetta di avvio, oppure solleva un errore leggibile."""
+    if TEST:
+        return TEST
+    src = run(["findmnt", "-n", "-o", "SOURCE", "/run/live/medium"], check=False)
+    if not src:
+        raise RuntimeError("local:os non sembra avviato da una chiavetta (modalità live non trovata)")
+    src = src.split("[")[0]
+    if src.startswith("/dev/sr"):
+        raise RuntimeError("local:os è avviato da un DVD: la memoria si può creare solo su una chiavetta USB")
+    parent = run(["lsblk", "-n", "-d", "-o", "PKNAME", src], check=False)
+    disk = f"/dev/{parent}" if parent else src
+    tran = run(["lsblk", "-n", "-d", "-o", "TRAN,RM", disk], check=False).split()
+    if not tran or (tran[0] != "usb" and (len(tran) < 2 or tran[1] != "1")):
+        raise RuntimeError("Il dispositivo di avvio non risulta una chiavetta USB rimovibile: per sicurezza non lo modifico")
+    return disk
+
+
+def disk_size(disk):
+    if TEST:
+        return os.path.getsize(disk)
+    with open(disk, "rb") as f:
+        return f.seek(0, os.SEEK_END)
+
+
+def read_mbr(disk):
+    with open(disk, "rb") as f:
+        mbr = f.read(SECTOR)
+        lba1 = f.read(SECTOR)
+    if len(mbr) < SECTOR or mbr[510:512] != b"\x55\xaa":
+        raise RuntimeError("La chiavetta non ha una tabella delle partizioni riconosciuta")
+    entries = []
+    for i in range(4):
+        e = mbr[446 + 16 * i: 446 + 16 * (i + 1)]
+        ptype = e[4]
+        start, count = struct.unpack("<II", e[8:16])
+        entries.append({"n": i + 1, "type": ptype, "start": start, "count": count})
+    if any(e["type"] == 0xEE for e in entries) or lba1[:8] == b"EFI PART":
+        # Le ISO Debian usano MBR; una tabella GPT non è prevista e non la tocchiamo.
+        raise RuntimeError("Tabella delle partizioni GPT non supportata (attesa MBR dell'immagine local:os)")
+    return mbr, entries
+
+
+def partition_path(disk, n):
+    if TEST:
+        return None
+    return f"{disk}p{n}" if disk[-1].isdigit() else f"{disk}{n}"
+
+
+def plan(disk):
+    """Calcola dove andrebbe la nuova partizione."""
+    _, entries = read_mbr(disk)
+    used = [e for e in entries if e["count"] > 0]
+    free_slot = next((e["n"] for e in entries if e["count"] == 0 and e["type"] == 0), None)
+    end = max((e["start"] + e["count"] for e in used), default=ALIGN)
+    start = (end + ALIGN - 1) // ALIGN * ALIGN
+    total = disk_size(disk) // SECTOR
+    count = (total - start) // ALIGN * ALIGN
+    existing = None
+    if not TEST:
+        for e in used:
+            p = partition_path(disk, e["n"])
+            if os.path.exists(p) and run(["blkid", "-o", "value", "-s", "TYPE", p], check=False) == "crypto_LUKS":
+                existing = p
+    return {"slot": free_slot, "start": start, "count": count, "free_bytes": max(count, 0) * SECTOR, "existing": existing}
+
+
+# ------------------------------------------------------------------ comandi
+
+def cmd_check():
+    if persistence_active():
+        out({"state": "active", "message": "Memoria persistente attiva"})
+    try:
+        disk = boot_disk()
+        p = plan(disk)
+    except RuntimeError as e:
+        out({"state": "unavailable", "message": str(e)})
+    if p["existing"]:
+        out({"state": "locked", "device": p["existing"],
+             "message": "Esiste già una memoria cifrata su questa chiavetta: al prossimo avvio inserisci la frase segreta"})
+    if p["slot"] is None:
+        out({"state": "unavailable", "message": "La tabella delle partizioni è piena"})
+    if p["free_bytes"] < MIN_FREE:
+        out({"state": "unavailable", "free_bytes": p["free_bytes"],
+             "message": "Spazio libero insufficiente sulla chiavetta (serve almeno 1 GB)"})
+    out({"state": "available", "disk": disk, "free_bytes": p["free_bytes"],
+         "message": "Puoi creare una memoria cifrata nello spazio libero della chiavetta"})
+
+
+def write_partition(disk, slot, start, count):
+    mbr, _ = read_mbr(disk)
+    mbr = bytearray(mbr)
+    off = 446 + 16 * (slot - 1)
+    # CHS non usato (valori "fuori range" standard), tipo 0x83 Linux, LBA e numero di settori
+    mbr[off:off + 16] = bytes([0x00, 0xFE, 0xFF, 0xFF, 0x83, 0xFE, 0xFF, 0xFF]) + struct.pack("<II", start, count)
+    with open(disk, "r+b") as f:
+        f.seek(0)
+        f.write(bytes(mbr))
+        f.flush()
+        os.fsync(f.fileno())
+
+
+def cmd_create():
+    phrase = sys.stdin.buffer.read()
+    if phrase.endswith(b"\n"):
+        phrase = phrase[:-1]
+    if len(phrase.decode("utf-8", errors="ignore")) < 8:
+        out({"ok": False, "message": "La frase segreta deve avere almeno 8 caratteri"}, 1)
+    try:
+        if persistence_active():
+            raise RuntimeError("La memoria persistente è già attiva")
+        disk = boot_disk()
+        p = plan(disk)
+        if p["existing"]:
+            raise RuntimeError("Su questa chiavetta esiste già una memoria cifrata")
+        if p["slot"] is None or p["free_bytes"] < MIN_FREE:
+            raise RuntimeError("Spazio libero insufficiente o tabella delle partizioni piena")
+
+        write_partition(disk, p["slot"], p["start"], p["count"])
+        if TEST:
+            out({"ok": True, "message": "test: partizione scritta", "slot": p["slot"], "start": p["start"], "count": p["count"]})
+
+        # Il sistema è in uso: si aggiunge solo la nuova partizione, senza rileggere le altre
+        run(["partx", "-a", "--nr", str(p["slot"]), disk], check=False)
+        part = partition_path(disk, p["slot"])
+        run(["udevadm", "settle"], check=False)
+        for _ in range(50):
+            if os.path.exists(part):
+                break
+            time.sleep(0.2)
+        else:
+            raise RuntimeError("Il sistema non vede la nuova partizione: riavvia e riprova")
+
+        # Argon2id con 256 MB di memoria: sicuro e sopportabile anche dai PC vecchi all'avvio
+        run(["cryptsetup", "luksFormat", "--type", "luks2", "--batch-mode",
+             "--pbkdf", "argon2id", "--pbkdf-memory", "262144",
+             "--label", "localos-persistence", "--key-file", "-", part], data=phrase)
+        run(["cryptsetup", "open", "--key-file", "-", part, MAPPER], data=phrase)
+        try:
+            mapped = f"/dev/mapper/{MAPPER}"
+            run(["mkfs.ext4", "-q", "-L", "persistence", mapped])
+            mnt = tempfile.mkdtemp(prefix="localos-persist-")
+            run(["mount", mapped, mnt])
+            try:
+                with open(os.path.join(mnt, "persistence.conf"), "w") as f:
+                    f.write(PERSISTENCE_CONF)
+            finally:
+                run(["umount", mnt], check=False)
+                os.rmdir(mnt)
+        finally:
+            run(["cryptsetup", "close", MAPPER], check=False)
+        size_gb = p["free_bytes"] / 1024 ** 3
+        out({"ok": True, "message": f"Memoria cifrata creata ({size_gb:.1f} GB). Riavvia: all'avvio local:os ti chiederà la frase segreta."})
+    except RuntimeError as e:
+        out({"ok": False, "message": str(e)}, 1)
+
+
+if __name__ == "__main__":
+    if os.geteuid() != 0 and not TEST:
+        out({"ok": False, "message": "Servono i permessi di amministratore"}, 1)
+    action = sys.argv[1] if len(sys.argv) > 1 else ""
+    if action == "check":
+        cmd_check()
+    elif action == "create":
+        cmd_create()
+    else:
+        out({"ok": False, "message": "uso: localos-persistence check|create"}, 2)

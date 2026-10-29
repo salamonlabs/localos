@@ -14,5 +14,5 @@ lb config noauto \
   --memtest none \
   --iso-application "localos" \
   --iso-volume "localos" \
-  --bootappend-live "boot=live components username=localos hostname=localos locales=it_IT.UTF-8 keyboard-layouts=it timezone=Europe/Rome quiet splash" \
+  --bootappend-live "boot=live components username=localos hostname=localos locales=it_IT.UTF-8 keyboard-layouts=it timezone=Europe/Rome persistence persistence-encryption=luks quiet splash" \
   "${@}"

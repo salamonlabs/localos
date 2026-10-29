@@ -1,8 +1,19 @@
 #!/bin/bash
-# Sessione grafica di local:os: aspetta la shell locale e apre il browser.
+# Sessione grafica di local:os (gira dentro Cage).
+#  - avvia la shell locale (desktop, API di sistema);
+#  - apre il desktop in Firefox in modalità kiosk, senza barre del browser.
+# I siti si aprono invece in finestre normali del browser, con le schede,
+# sopra il desktop: chiudendole si torna al desktop.
 export MOZ_ENABLE_WAYLAND=1
 
-# Attende fino a ~10 secondi che la shell web risponda sulla porta 8088
+STATE="$HOME/.local/share/localos"
+mkdir -p "$STATE/desktop-profile" "$STATE/web-profile" "$HOME/Documenti/Note"
+
+# Una sola istanza della shell: chiude quella di una sessione precedente
+pkill -u "$(id -u)" -f "/usr/lib/localos/localos-shell.py" 2>/dev/null
+LOCALOS_WEB_PROFILE="$STATE/web-profile" python3 /usr/lib/localos/localos-shell.py &
+
+# Attende fino a ~10 secondi che la shell risponda sulla porta 8088
 for _ in $(seq 1 50); do
   if (exec 3<>/dev/tcp/127.0.0.1/8088) 2>/dev/null; then
     break
@@ -10,4 +21,5 @@ for _ in $(seq 1 50); do
   sleep 0.2
 done
 
-exec firefox-esr
+# Profilo separato e -no-remote: i siti non finiscono mai dentro la finestra del desktop
+exec firefox-esr --kiosk --no-remote --profile "$STATE/desktop-profile" http://127.0.0.1:8088/
