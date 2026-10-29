@@ -28,6 +28,7 @@ MIME = {
     ".css": "text/css; charset=utf-8",
     ".js": "text/javascript; charset=utf-8",
     ".svg": "image/svg+xml",
+    ".jpg": "image/jpeg",
     ".ico": "image/x-icon",
     ".png": "image/png",
     ".woff2": "font/woff2",

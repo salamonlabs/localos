@@ -82,6 +82,7 @@ config/includes.chroot/         file copiati così come sono nel sistema
 .github/workflows/              build automatica dell'ISO
 branding/localos-orbit-kit.zip  identità visiva completa (sorgente, compressa)
 branding/boot/                  sfondi del menu di avvio (1920×1080 GRUB, 640×480 BIOS)
+branding/wallpaper/             sfondo "onde di seta" (con e senza logo, fino a 4K) e script che lo genera
 ```
 
 ## Identità visiva
@@ -95,6 +96,8 @@ Il segno **Orbit**: un anello aperto con un punto, cioè l'utente al centro del 
 | Viola | `#8055EF` | inizio del gradiente |
 | Notte | `#10182C` | testo, sfondo scuro, menu di avvio |
 | Ghiaccio | `#F5F8FF` | sfondo chiaro |
+
+Lo **sfondo** della home è `branding/wallpaper/sfondo-1920x1080.jpg`: un'immagine statica già pronta, quindi leggera anche sui PC vecchi. Le versioni con logo servono per presentazioni, sito e social.
 
 Kit completo in `branding/localos-orbit-kit.zip` (regole d'uso in `06-guidelines/LEGGIMI.txt`).
 
@@ -121,7 +124,7 @@ Kit completo in `branding/localos-orbit-kit.zip` (regole d'uso in `06-guidelines
    - Da fare: AppArmor con profilo per il browser, liste uBlock extra, MAC casuale sulle reti pubbliche, pagina "Diagnostica"
    - *Eventuale*: "modalità anonima" opzionale con Tor Browser originale (non Tor di sistema: si perderebbe velocità e compatibilità, e un Firefox modificato su Tor è riconoscibile)
    - Provato su: Lenovo ThinkPad E14 (2023) – avvio con Secure Boot, Wi-Fi, ora NTS ed ECH verificati
-   - 0.2.1: nuovo nome local:os, tastiera italiana nell'interfaccia grafica ← siamo qui
+   - ✅ 0.2.1: nuovo nome local:os, identità visiva Orbit (home e menu di avvio), tastiera italiana – verificata sul Lenovo E14 ← siamo qui
 3. Versione 0.3 – local:os diventa **local-first**:
    - Memoria persistente cifrata sulla chiavetta (o installazione su disco), con la cartella Documenti
    - App locali che funzionano offline, servite da local:os: Note (Markdown), Disegno (Excalidraw), File

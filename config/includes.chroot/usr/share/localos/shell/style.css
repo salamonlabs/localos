@@ -1,29 +1,18 @@
 /* Palette local:os – Orbit: Blu #3665F3 · Ciano #20C9E8 · Viola #8055EF · Notte #10182C · Ghiaccio #F5F8FF */
+/* La home ha sempre lo sfondo "notte" con le onde: testi chiari, superfici scure semitrasparenti */
 :root {
-  --bg: #F5F8FF;
-  --surface: #ffffff;
-  --ink: #10182C;
-  --muted: #5B6680;
-  --line: #DFE6F5;
-  --accent: #3665F3;
-  --accent-ink: #ffffff;
-  --danger: #C2413A;
+  --bg: #10182C;
+  --surface: rgb(16 24 44 / 0.62);
+  --surface-solid: #18223A;
+  --ink: #F5F8FF;
+  --muted: #A9B4CF;
+  --line: rgb(245 248 255 / 0.14);
+  --accent: #20C9E8;
+  --accent-ink: #10182C;
+  --danger: #F0857B;
   --radius: 14px;
   font-family: "Noto Sans", system-ui, sans-serif;
-  color-scheme: light dark;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #10182C;
-    --surface: #18223A;
-    --ink: #F5F8FF;
-    --muted: #9BA7C2;
-    --line: #27324D;
-    --accent: #20C9E8;
-    --accent-ink: #10182C;
-    --danger: #F0857B;
-  }
+  color-scheme: dark;
 }
 
 * { box-sizing: border-box; }
@@ -32,7 +21,8 @@
 body {
   margin: 0;
   min-height: 100vh;
-  background: var(--bg);
+  /* Lo sfondo è un'immagine statica già pronta: nessun effetto calcolato al volo, leggero anche sui PC vecchi */
+  background: var(--bg) url("wallpaper.jpg") center bottom / cover no-repeat fixed;
   color: var(--ink);
 }
 
@@ -45,7 +35,6 @@ button, input { font: inherit; color: inherit; }
   padding: 12px 20px;
 }
 
-.brand, .brand img { display: block; height: 30px; width: auto; }
 
 .status {
   display: flex;
@@ -64,12 +53,15 @@ button, input { font: inherit; color: inherit; }
 .home {
   max-width: 760px;
   margin: 0 auto;
-  padding: 8vh 20px 40px;
+  padding: 2vh 20px 40px;
+  text-align: center;
 }
 
+.hero { display: block; margin: 0 auto 18px; height: clamp(96px, 16vh, 140px); width: auto; }
 .date { margin: 0; color: var(--muted); }
 .date::first-letter { text-transform: uppercase; }
-.greeting { margin: 4px 0 28px; font-size: clamp(2rem, 5vw, 3rem); font-weight: 600; }
+.greeting { margin: 4px 0 28px; font-size: clamp(2rem, 5vw, 3rem); font-weight: 600; text-shadow: 0 2px 24px rgb(0 0 0 / 0.35); }
+.apps-wrap, .add-app { text-align: left; }
 
 .search input {
   width: 100%;
@@ -81,6 +73,7 @@ button, input { font: inherit; color: inherit; }
   outline: none;
 }
 .search input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); }
+.search input::placeholder { color: var(--muted); }
 
 .apps-wrap { margin-top: 40px; }
 .apps-head, .q-head { display: flex; justify-content: space-between; align-items: baseline; }
@@ -139,7 +132,7 @@ button[type="submit"] { background: var(--accent); color: var(--accent-ink); }
 
 .link { border: none; background: none; color: var(--accent); cursor: pointer; padding: 0; font-size: 0.85rem; }
 
-.foot { margin-top: 56px; text-align: center; }
+.foot { margin-top: 56px; text-align: center; text-shadow: 0 1px 12px rgb(6 10 24 / 0.9); }
 .payoff { margin: 0 0 6px; font-size: 0.95rem; letter-spacing: 0.04em; color: var(--ink); }
 .note { margin: 0; color: var(--muted); font-size: 0.8rem; }
 
@@ -149,11 +142,11 @@ button[type="submit"] { background: var(--accent); color: var(--accent-ink); }
   width: min(340px, calc(100vw - 32px));
   max-height: calc(100vh - 72px);
   overflow: auto;
-  background: var(--surface);
+  background: var(--surface-solid);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 16px;
-  box-shadow: 0 12px 40px rgb(0 0 0 / 0.15);
+  box-shadow: 0 12px 40px rgb(0 0 0 / 0.45);
 }
 .quick section + section { margin-top: 20px; }
 
@@ -169,7 +162,7 @@ button[type="submit"] { background: var(--accent); color: var(--accent-ink); }
 .wifi-row .meta { color: var(--muted); font-size: 0.8rem; white-space: nowrap; }
 .wifi-row.active { color: var(--accent); font-weight: 600; }
 .wifi-pass { display: flex; gap: 6px; padding: 0 0 10px; }
-.wifi-pass input { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+.wifi-pass input { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); }
 
 #volume { width: 100%; accent-color: var(--accent); }
 
