@@ -1,4 +1,4 @@
-// local:os 0.3 – desktop.
+// local:os 0.3.2 – desktop.
 // Parla con il servizio locale (localos-shell.py) usando il token inserito nella pagina.
 // Le app locali si aprono in finestre qui dentro; i siti in finestre del browser sopra il desktop.
 "use strict";
@@ -373,7 +373,7 @@ async function startSync() {
 
 /* ---------------------------------------------------------------- Impostazioni */
 function viewSettings(body) {
-  const memory = h("div", { class: "stack" }, h("p", { class: "msg" }, "Controllo della memoria…"));
+  const memory = h("div", { class: "stack", id: "mem-section" }, h("p", { class: "msg" }, "Controllo della memoria…"));
   const appsBox = h("div", {});
   body.replaceChildren(
     h("span", { class: "pill local" }, "SISTEMA"),
@@ -394,50 +394,310 @@ function viewSettings(body) {
   renderAppsEditor(appsBox);
 }
 
-async function renderMemory(box) {
+/* ---------------------------------------------------------------- memoria (0.3.2) */
+// mode: "memory" (attiva) · "guest" (esiste ma è chiusa, o avvio ospite) · "created" (pronta dal prossimo avvio) · "none"
+let mem = { mode: null, state: null, info: {} };
+
+async function checkMemory() {
   let r;
-  try { r = await api("/api/persistence/check", {}); } catch (e) { box.replaceChildren(h("p", { class: "msg err" }, e.message)); return; }
-  if (r.state === "active") {
-    box.replaceChildren(h("p", {}, h("span", { class: "pill ok" }, "ATTIVA")),
-      h("p", {}, "Wi-Fi, impostazioni, note e file restano salvati, cifrati sulla chiavetta. Senza la frase segreta nessuno può leggerli."));
+  try { r = await api("/api/persistence/check", {}); } catch (e) { r = { state: "unavailable", message: e.message }; }
+  mem.state = r.state; mem.info = r;
+  if (mem.mode === "created") return r;               // creata in questa sessione: resta così fino al riavvio
+  if (r.state === "active") mem.mode = "memory";
+  else if (r.state === "locked" || sys.guest_boot) mem.mode = "guest";
+  else mem.mode = "none";
+  return r;
+}
+
+const MODE_ICON = {
+  guest: '<circle cx="12" cy="8" r="3.6"/><path d="M5 20c.8-3.6 3.6-5.6 7-5.6s6.2 2 7 5.6"/>',
+  memory: '<rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"/>',
+  none: '<rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0"/>',
+};
+const MODE_LABEL = { memory: "Memoria", guest: "Ospite", created: "Da riavviare", none: "Non salvata" };
+
+function paintMode() {
+  const m = mem.mode;
+  const btn = $("mb-mode");
+  if (!m) { btn.hidden = true; return; }
+  btn.hidden = false;
+  btn.classList.toggle("on", m === "memory");
+  btn.classList.toggle("guest", m === "guest");
+  $("mb-mode-ico").innerHTML = MODE_ICON[m === "created" ? "memory" : m];
+  $("mb-mode-lbl").textContent = MODE_LABEL[m];
+  btn.setAttribute("aria-label", "Stato della memoria: " + MODE_LABEL[m]);
+  const showLink = m === "created" || (m === "none" && mem.state === "available");
+  $("desk-persist").hidden = !showLink;
+  $("persist-cta").textContent = m === "created"
+    ? "Memoria creata: sarà attiva dal prossimo avvio. Riavvia"
+    : "La memoria non è attiva: le modifiche si perdono allo spegnimento. Attivala";
+}
+
+function modeMenu() {
+  const m = mem.mode;
+  if (m === "memory") return [
+    h("h4", {}, "Memoria"),
+    h("div", { class: "note" }, "Memoria cifrata attiva: Wi-Fi, impostazioni, note e file restano salvati sulla chiavetta."),
+    h("button", { class: "menu-item", onclick: () => { closeMenu(); openApp("settings"); } }, "Impostazioni della memoria"),
+  ];
+  if (m === "guest") return [
+    h("h4", {}, "Sessione ospite"),
+    h("div", { class: "note" }, mem.state === "locked"
+      ? "Niente viene salvato e la tua memoria resta chiusa. Allo spegnimento questa sessione sparisce."
+      : "Avvio ospite: niente viene salvato. Allo spegnimento questa sessione sparisce."),
+    h("button", { class: "menu-item", onclick: () => confirmPower("reboot") }, mem.state === "locked" ? "Riavvia e sblocca la memoria…" : "Riavvia…"),
+  ];
+  if (m === "created") return [
+    h("h4", {}, "Memoria creata"),
+    h("div", { class: "note" }, "Al prossimo avvio local:os ti chiederà la frase segreta e da lì in poi ricorderà tutto."),
+    h("button", { class: "menu-item", onclick: () => confirmPower("reboot") }, "Riavvia ora…"),
+  ];
+  return [
+    h("h4", {}, "Memoria non attiva"),
+    h("div", { class: "note" }, mem.state === "available"
+      ? "Allo spegnimento local:os dimentica tutto: reti, note, file."
+      : (mem.info.message || "Allo spegnimento local:os dimentica tutto.")),
+    mem.state === "available" ? h("button", { class: "menu-item", onclick: () => openWelcome(2, true) }, "Attiva la memoria…") : null,
+  ];
+}
+
+async function createMemory(phrase) {
+  const res = await api("/api/persistence/create", { phrase });
+  if (res.ok) { mem.mode = "created"; paintMode(); refreshSettings(); }
+  return res;
+}
+
+function refreshSettings() {
+  const w = wins.get("settings");
+  const box = w && w.querySelector("#mem-section");
+  if (box) renderMemory(box);
+}
+
+async function renderMemory(box) {
+  box.replaceChildren(h("p", { class: "msg" }, "Controllo della memoria…"));
+  const r = await checkMemory();
+  paintMode();
+  const m = mem.mode;
+  if (m === "memory") {
+    const panel = h("div", { class: "stack" });
+    box.replaceChildren(
+      h("p", {}, h("span", { class: "pill ok" }, "ATTIVA")),
+      h("p", {}, "Wi-Fi, impostazioni, note e file restano salvati, cifrati sulla chiavetta. Senza la frase segreta nessuno può leggerli."),
+      h("div", { class: "actions" },
+        h("button", { class: "btn", onclick: () => changeForm(panel) }, "Cambia frase segreta"),
+        h("button", { class: "btn", onclick: () => deleteForm(panel) }, "Cancella memoria…")),
+      panel);
     return;
   }
-  if (r.state === "locked") {
-    box.replaceChildren(h("p", {}, h("span", { class: "pill warn" }, "BLOCCATA")), h("p", {}, r.message));
+  if (m === "created") {
+    box.replaceChildren(h("p", {}, h("span", { class: "pill ok" }, "CREATA")),
+      h("p", {}, "La memoria cifrata è pronta e sarà attiva dal prossimo avvio."),
+      h("p", { class: "actions" }, h("button", { class: "btn primary", onclick: () => api("/api/power", { action: "reboot" }) }, "Riavvia ora")));
+    return;
+  }
+  if (m === "guest") {
+    box.replaceChildren(h("p", {}, h("span", { class: "pill warn" }, "SESSIONE OSPITE")),
+      h("p", {}, r.state === "locked"
+        ? "La tua memoria esiste ma è chiusa: in questa sessione niente viene salvato. Per usarla riavvia e inserisci la frase segreta."
+        : "Hai avviato local:os come ospite: niente viene salvato. Per usare o creare la memoria riavvia e scegli la prima voce del menu di avvio."),
+      h("p", { class: "actions" }, h("button", { class: "btn primary", onclick: () => api("/api/power", { action: "reboot" }) }, "Riavvia ora")));
     return;
   }
   if (r.state !== "available") {
     box.replaceChildren(h("p", {}, h("span", { class: "pill warn" }, "NON DISPONIBILE")), h("p", {}, r.message || "Funzione non disponibile."));
     return;
   }
-  const p1 = h("input", { class: "field", id: "phrase-1", type: "password", autocomplete: "new-password", placeholder: "Frase segreta (almeno 8 caratteri)" });
-  const p2 = h("input", { class: "field", id: "phrase-2", type: "password", autocomplete: "new-password", placeholder: "Ripeti la frase segreta" });
-  const msg = h("p", { class: "msg" });
-  const go = h("button", { class: "btn primary", type: "submit" }, `Crea memoria cifrata (${fmtSize(r.free_bytes)})`);
-  const form = h("form", { class: "stack" },
+  box.replaceChildren(
     h("p", {}, h("span", { class: "pill warn" }, "NON ATTIVA")),
     h("p", {}, "Ora local:os dimentica tutto allo spegnimento. Puoi usare lo spazio libero della chiavetta per una memoria cifrata: Wi-Fi, impostazioni, note e file resteranno salvati."),
-    h("ul", { class: "facts" },
-      h("li", {}, "La frase segreta serve a ogni avvio. Se la dimentichi, i dati non si recuperano: scrivila in un posto sicuro."),
-      h("li", {}, "Viene modificata solo la chiavetta, mai il disco del computer."),
-      h("li", {}, "Se un giorno riscrivi la chiavetta con balenaEtcher, la memoria viene cancellata.")),
-    p1, p2, h("div", { class: "actions" }, go), msg);
-  form.addEventListener("submit", async (e) => {
+    h("p", { class: "actions" }, h("button", { class: "btn primary", onclick: () => openWelcome(2, true) }, `Crea memoria cifrata (${fmtSize(r.free_bytes)})…`)));
+}
+
+function changeForm(panel) {
+  const old = h("input", { class: "field", type: "password", id: "cp-old", autocomplete: "current-password", placeholder: "Frase segreta attuale" });
+  const n1 = h("input", { class: "field", type: "password", id: "cp-new", autocomplete: "new-password", placeholder: "Nuova frase (almeno 8 caratteri)" });
+  const n2 = h("input", { class: "field", type: "password", id: "cp-new2", autocomplete: "new-password", placeholder: "Ripeti la nuova frase" });
+  const msg = h("p", { class: "msg" });
+  const go = h("button", { class: "btn primary", type: "submit" }, "Salva la nuova frase");
+  const f = h("form", { class: "stack" }, old, n1, n2,
+    h("div", { class: "actions" }, go, h("button", { class: "btn", type: "button", onclick: () => panel.replaceChildren() }, "Annulla")), msg);
+  f.addEventListener("submit", async (e) => {
     e.preventDefault();
     msg.className = "msg err";
-    if (p1.value.length < 8) { msg.textContent = "La frase segreta deve avere almeno 8 caratteri."; return; }
-    if (p1.value !== p2.value) { msg.textContent = "Le due frasi non coincidono."; return; }
-    go.disabled = true; msg.className = "msg"; msg.textContent = "Creazione in corso: può richiedere un minuto. Non togliere la chiavetta.";
+    if (!old.value) { msg.textContent = "Scrivi la frase segreta attuale."; return; }
+    if (n1.value.length < 8) { msg.textContent = "La nuova frase deve avere almeno 8 caratteri."; return; }
+    if (n1.value !== n2.value) { msg.textContent = "Le due nuove frasi non coincidono."; return; }
+    go.disabled = true; msg.className = "msg"; msg.textContent = "Cambio della frase in corso…";
     try {
-      const res = await api("/api/persistence/create", { phrase: p1.value });
-      p1.value = p2.value = "";
-      if (res.ok) {
-        box.replaceChildren(h("p", {}, h("span", { class: "pill ok" }, "CREATA")), h("p", {}, res.message),
-          h("p", { class: "actions" }, h("button", { class: "btn primary", onclick: () => api("/api/power", { action: "reboot" }) }, "Riavvia ora")));
-      } else { go.disabled = false; msg.className = "msg err"; msg.textContent = res.message || "Creazione non riuscita."; }
-    } catch (err) { go.disabled = false; msg.className = "msg err"; msg.textContent = err.message; }
+      const r = await api("/api/persistence/change", { old: old.value, new: n1.value });
+      if (r.ok) { panel.replaceChildren(h("p", { class: "msg" }, r.message)); toast("Frase segreta cambiata. I dati non sono stati toccati."); return; }
+      msg.className = "msg err"; msg.textContent = r.message || "Cambio non riuscito.";
+    } catch (err) { msg.className = "msg err"; msg.textContent = err.message; }
+    go.disabled = false;
   });
-  box.replaceChildren(form);
+  panel.replaceChildren(f);
+  old.focus();
+}
+
+function deleteForm(panel) {
+  const inp = h("input", { class: "field", id: "del-confirm", autocomplete: "off", placeholder: "CANCELLA", "aria-label": "Scrivi CANCELLA per confermare" });
+  const go = h("button", { class: "btn danger", type: "submit", disabled: true }, "Cancella definitivamente");
+  const msg = h("p", { class: "msg" });
+  inp.addEventListener("input", () => { go.disabled = inp.value.trim() !== "CANCELLA"; });
+  const f = h("form", { class: "stack" },
+    h("p", {}, "Tutti i dati salvati (note, file, reti, impostazioni) verranno cancellati per sempre e lo spazio tornerà libero sulla chiavetta. Per confermare scrivi CANCELLA."),
+    inp, h("div", { class: "actions" }, go, h("button", { class: "btn", type: "button", onclick: () => panel.replaceChildren() }, "Annulla")), msg);
+  f.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (inp.value.trim() !== "CANCELLA") return;
+    go.disabled = true; msg.className = "msg"; msg.textContent = "Cancellazione in corso…";
+    try {
+      const r = await api("/api/persistence/delete", { confirm: "CANCELLA" });
+      if (r.ok) {
+        mem.mode = "none"; mem.state = "deleted"; paintMode();
+        $("desk-persist").hidden = true;
+        panel.closest("#mem-section").replaceChildren(
+          h("p", {}, h("span", { class: "pill warn" }, "CANCELLATA")), h("p", {}, r.message),
+          h("p", { class: "actions" }, h("button", { class: "btn primary", onclick: () => api("/api/power", { action: "reboot" }) }, "Riavvia ora")));
+        return;
+      }
+      msg.className = "msg err"; msg.textContent = r.message || "Cancellazione non riuscita.";
+    } catch (err) { msg.className = "msg err"; msg.textContent = err.message; }
+    go.disabled = false;
+  });
+  panel.replaceChildren(f);
+  inp.focus();
+}
+
+/* ---------------------------------------------------------------- benvenuto al primo avvio */
+let wStep = 0, wFromSettings = false, wMemChoice = null, wBusy = false, wPassFor = null;
+
+function openWelcome(step, fromSettings = false) {
+  closeMenu(); closeSpot();
+  wStep = step; wFromSettings = fromSettings; wMemChoice = fromSettings ? "yes" : null; wBusy = false; wPassFor = null;
+  $("welcome-back").hidden = false;
+  renderWelcome();
+  if (step === 1) wifiScanQuiet();
+}
+function closeWelcome() {
+  if (wBusy) return;
+  $("welcome-back").hidden = true;
+  if (!wFromSettings) store("localos.welcomed", true);
+}
+async function wifiScanQuiet() {
+  try { const r = await api("/api/wifi/scan", {}); sys.wifi = r.wifi || []; } catch (_) { /* niente Wi-Fi */ }
+  if (wStep === 1 && !$("welcome-back").hidden) renderWelcome();
+}
+
+function wbtn(label, cls, onclick, extra = {}) {
+  return h("button", { class: "wbtn" + (cls ? " " + cls : ""), type: "button", onclick, ...extra }, label);
+}
+
+function renderWelcome() {
+  const steps = h("div", { class: "steps" }, [0, 1, 2, 3].map((i) => h("span", { class: i <= wStep ? "on" : null })));
+  let body = [], actions = [];
+  const online = (sys.wifi || []).some((n) => n.active) || sys.wired;
+  if (wStep === 0) {
+    body = [h("p", { class: "eyebrow" }, "Benvenuto"), h("h2", {}, "Ciao, questo è local:os"),
+      h("p", {}, "Un sistema leggero che lavora sul tuo computer e tiene i tuoi dati con te. Niente account, niente pubblicità, niente telemetria."),
+      h("p", {}, "Ti servono due minuti per prepararlo.")];
+    actions = [wbtn("Iniziamo", "primary", () => { wStep = 1; renderWelcome(); wifiScanQuiet(); })];
+  } else if (wStep === 1) {
+    const nets = sys.wifi || [];
+    body = [h("p", { class: "eyebrow" }, "Passo 1 di 3 · Rete"), h("h2", {}, "Collegati a internet"),
+      h("p", {}, sys.wired ? "Sei già collegato con il cavo: puoi andare avanti." : "Scegli la tua rete Wi-Fi. Se usi il cavo, puoi saltare questo passaggio."),
+      nets.length ? h("ul", { class: "wnets" }, nets.slice(0, 8).map((n) => h("li", {},
+        h("button", { class: n.active ? "on" : null, type: "button", onclick: () => wPickNet(n) },
+          h("span", {}, n.ssid), h("span", { class: "meta" }, `${n.active ? "Connesso · " : ""}${n.signal}%${n.secure ? " · protetta" : " · aperta"}`)),
+        wPassFor === n.ssid ? wPassForm(n.ssid) : null)))
+        : h("p", { class: "wnote" }, "Ricerca delle reti Wi-Fi…")];
+    actions = [wbtn(online ? "Avanti" : "Salta", "primary", () => { wStep = 2; renderWelcome(); })];
+  } else if (wStep === 2) {
+    const memBox = h("div", { id: "w-mem" });
+    body = [h("p", { class: "eyebrow" }, wFromSettings ? "Memoria" : "Passo 2 di 3 · Memoria"),
+      h("h2", {}, wFromSettings ? "Crea la memoria cifrata" : "Vuoi che local:os ricordi i tuoi dati?"),
+      wFromSettings ? null : h("div", { class: "choice" },
+        h("button", { type: "button", class: wMemChoice === "yes" ? "sel" : null, onclick: () => { wMemChoice = "yes"; renderWelcome(); $("w-p1").focus(); } },
+          h("strong", {}, "Sì, crea una memoria cifrata"),
+          h("span", {}, "Wi-Fi, impostazioni, note e file restano salvati sulla chiavetta, protetti da una frase segreta che inserisci a ogni avvio.")),
+        h("button", { type: "button", class: wMemChoice === "no" ? "sel" : null, onclick: () => { wMemChoice = "no"; renderWelcome(); } },
+          h("strong", {}, "Non ora"),
+          h("span", {}, "Ogni avvio riparte pulito. Potrai attivarla quando vuoi da Impostazioni."))),
+      memBox];
+    if (wMemChoice === "yes") {
+      memBox.append(h("form", { class: "mem-box", id: "w-form" },
+        wFromSettings ? h("p", { class: "wnote" }, `Userà lo spazio libero della chiavetta (${fmtSize(mem.info.free_bytes || 0)}).`) : null,
+        h("input", { class: "wfield", id: "w-p1", type: "password", placeholder: "Frase segreta (almeno 8 caratteri)", autocomplete: "new-password" }),
+        h("input", { class: "wfield", id: "w-p2", type: "password", placeholder: "Ripeti la frase segreta", autocomplete: "new-password" }),
+        h("p", { class: "wnote" }, "Scrivila su carta: se la dimentichi, i dati non si recuperano. Viene modificata solo la chiavetta, mai il disco del computer."),
+        h("p", { class: "wnote err", id: "w-err" })));
+      memBox.firstChild.addEventListener("submit", (e) => { e.preventDefault(); wMemNext(); });
+    }
+    actions = [wbtn(wMemChoice === "yes" ? "Crea la memoria" : "Avanti", "primary", wMemNext, { id: "w-go", disabled: !wMemChoice })];
+  } else {
+    const created = mem.mode === "created";
+    body = [h("p", { class: "eyebrow" }, wFromSettings ? "Fatto" : "Passo 3 di 3 · Pronto"),
+      h("h2", {}, created ? "Memoria creata. Ci siamo" : "Tutto pronto"),
+      created ? h("p", {}, "Dal prossimo avvio local:os ti chiederà la frase segreta e ricorderà tutto. Riavvia quando vuoi.") : null,
+      wFromSettings ? null : h("ul", { class: "tips" },
+        h("li", {}, h("b", {}, "Cerca"), h("span", {}, "Premi ", h("kbd", {}, "Ctrl"), " ", h("kbd", {}, "Spazio"), " per trovare app, note, file o cercare sul web.")),
+        h("li", {}, h("b", {}, "Dock"), h("span", {}, "A sinistra le app che funzionano offline, al centro i siti, a destra le Impostazioni.")),
+        h("li", {}, h("b", {}, "Barra in alto"), h("span", {}, "Stato della memoria, Wi-Fi, suono, batteria, ora e spegnimento.")))];
+    actions = created
+      ? [wbtn("Più tardi", "", closeWelcome), wbtn("Riavvia ora", "primary", () => { closeWelcome(); api("/api/power", { action: "reboot" }); })]
+      : [wbtn("Inizia a usare local:os", "primary", closeWelcome)];
+  }
+  const back = wStep > 0 && wStep < 3 && !wFromSettings && !wBusy ? wbtn("Indietro", "ghost", () => { wStep--; renderWelcome(); })
+    : (wStep < 3 && !wBusy ? wbtn(wFromSettings ? "Annulla" : "Salta tutto", "ghost", closeWelcome) : h("span", {}));
+  $("welcome").replaceChildren(steps, ...body.filter(Boolean), h("div", { class: "row-actions" }, back, h("div", { class: "right" }, actions)));
+}
+
+function wPickNet(n) {
+  if (n.active) return;
+  if (!n.secure) { wConnect(n.ssid, ""); return; }
+  wPassFor = wPassFor === n.ssid ? null : n.ssid;
+  renderWelcome();
+  if (wPassFor) $("w-pass-in").focus();
+}
+function wPassForm(ssid) {
+  const inp = h("input", { class: "wfield", id: "w-pass-in", type: "password", autocomplete: "off", placeholder: `Password di ${ssid}` });
+  const f = h("form", { class: "mem-box wpass" }, inp, h("div", { class: "mem-actions" }, h("button", { class: "wbtn primary", type: "submit" }, "Connetti")));
+  f.addEventListener("submit", (e) => { e.preventDefault(); wConnect(ssid, inp.value); });
+  return f;
+}
+async function wConnect(ssid, password) {
+  wPassFor = null;
+  toast(`Connessione a ${ssid}…`);
+  try {
+    const r = await api("/api/wifi/connect", { ssid, password });
+    toast(r.ok ? `Connesso a ${ssid}` : `Connessione non riuscita: ${r.error || "controlla la password"}`);
+  } catch (e) { toast(e.message); }
+  await refresh();
+  if (wStep === 1) renderWelcome();
+}
+
+async function wMemNext() {
+  if (wMemChoice === "no") { wStep = 3; renderWelcome(); return; }
+  const p1 = $("w-p1"), p2 = $("w-p2"), err = $("w-err");
+  if (!p1) return;
+  if (p1.value.length < 8) { err.textContent = "La frase segreta deve avere almeno 8 caratteri."; p1.focus(); return; }
+  if (p1.value !== p2.value) { err.textContent = "Le due frasi non coincidono."; p2.focus(); return; }
+  const phrase = p1.value;
+  wBusy = true;
+  $("w-mem").replaceChildren(h("div", { class: "mem-box" },
+    h("p", { class: "wnote" }, "Preparazione della memoria cifrata: può richiedere alcuni minuti (viene preparata tutta subito, così poi la chiavetta resta veloce). Non togliere la chiavetta e non spegnere."),
+    h("div", { class: "bar wide busy" }, h("i"))));
+  $("welcome").querySelectorAll("button").forEach((b) => { b.disabled = true; });
+  try {
+    const r = await createMemory(phrase);
+    wBusy = false;
+    if (r.ok) { wStep = 3; wMemChoice = "yes"; renderWelcome(); return; }
+    renderWelcome();
+    $("w-err").textContent = r.message || "Creazione non riuscita.";
+  } catch (e) {
+    wBusy = false; renderWelcome();
+    $("w-err").textContent = e.message;
+  }
 }
 
 function renderAppsEditor(box) {
@@ -464,6 +724,7 @@ let sys = { wifi: [], volume: null, battery: null }, version = "", persistent = 
 let openFor = null, connecting = null;
 
 function menuContent(kind) {
+  if (kind === "mode") return modeMenu();
   if (kind === "orbit") return [
     h("h4", {}, `local:os ${version}`),
     h("button", { class: "menu-item", onclick: () => { closeMenu(); openApp("settings"); } }, "Impostazioni"),
@@ -566,7 +827,7 @@ function openMenu(kind, anchor) {
   m.style.top = (r.bottom + 6) + "px";
   openFor = kind; m.anchor = anchor;
   anchor.setAttribute("aria-expanded", "true");
-  if (kind !== "orbit" && kind !== "power") refresh().then(refillMenu);
+  if (kind !== "orbit" && kind !== "power" && kind !== "mode") refresh().then(refillMenu);
 }
 function closeMenu() {
   const m = $("menu");
@@ -574,7 +835,7 @@ function closeMenu() {
   if (m.anchor) m.anchor.setAttribute("aria-expanded", "false");
   openFor = null;
 }
-for (const [id, kind] of [["mb-orbit", "orbit"], ["mb-wifi", "wifi"], ["mb-vol", "vol"], ["mb-bat", "bat"], ["mb-power", "power"]]) {
+for (const [id, kind] of [["mb-mode", "mode"], ["mb-orbit", "orbit"], ["mb-wifi", "wifi"], ["mb-vol", "vol"], ["mb-bat", "bat"], ["mb-power", "power"]]) {
   $(id).addEventListener("click", (e) => { e.stopPropagation(); openMenu(kind, $(id)); });
 }
 $("mb-clock").addEventListener("click", () => toast(new Date().toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long", year: "numeric" })));
@@ -586,7 +847,7 @@ function paintVol() {
 }
 function paintStatus() {
   const active = (sys.wifi || []).find((n) => n.active);
-  $("mb-wifi-name").textContent = active ? active.ssid : "Non connesso";
+  $("mb-wifi-name").textContent = active ? active.ssid : sys.wired ? "Cavo" : "Non connesso";
   paintVol();
   const b = sys.battery;
   $("mb-bat").hidden = !b;
@@ -594,7 +855,6 @@ function paintStatus() {
     $("bat-fill").setAttribute("width", (15.6 * b.level / 100).toFixed(1));
     $("mb-bat-pct").textContent = b.level + "%" + (b.charging ? " ⚡" : "");
   }
-  $("desk-persist").hidden = persistent;
 }
 async function refresh() {
   try {
@@ -603,7 +863,7 @@ async function refresh() {
     paintStatus();
   } catch (_) { /* il servizio si sta avviando */ }
 }
-$("persist-cta").addEventListener("click", () => openApp("settings"));
+$("persist-cta").addEventListener("click", () => { if (mem.mode === "none" && mem.state === "available") openWelcome(2, true); else openApp("settings"); });
 
 /* ================================================================ orologio */
 function tick() {
@@ -688,7 +948,8 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault();
     if ($("spot-back").hidden) openSpot(); else closeSpot();
   } else if (e.key === "Escape") {
-    if (!$("spot-back").hidden) closeSpot(); else closeMenu();
+    if (!$("welcome-back").hidden) closeWelcome();
+    else if (!$("spot-back").hidden) closeSpot(); else closeMenu();
   }
 });
 // Il desktop non ha menu contestuale del browser
@@ -706,6 +967,10 @@ function toast(text) {
 /* ================================================================ avvio */
 tick(); setInterval(tick, 10000);
 renderDock();
-refresh();
+refresh().then(checkMemory).then(() => {
+  paintMode();
+  // Primo avvio: la memoria si può creare e il benvenuto non è mai stato chiuso
+  if (mem.mode === "none" && mem.state === "available" && !store("localos.welcomed")) openWelcome(0);
+});
 setInterval(() => { if (!document.hidden) refresh(); }, 15000);
 addEventListener("resize", () => { document.querySelectorAll(".win.max").forEach((w) => { w.classList.remove("max"); toggleMax(w); }); });

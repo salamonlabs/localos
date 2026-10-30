@@ -38,6 +38,8 @@ chrony
 # cryptsetup anche nell'initramfs: chiede la frase segreta all'avvio
 cryptsetup
 cryptsetup-initramfs
+# Schermate grafiche di avvio, sblocco della memoria e spegnimento
+plymouth
 
 # --- Local-first (0.3) ---
 # Sincronizzazione delle cartelle tra i propri dispositivi, da pari a pari

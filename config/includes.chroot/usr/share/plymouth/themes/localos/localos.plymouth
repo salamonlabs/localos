@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=local:os
+Description=Avvio, sblocco della memoria e spegnimento di local:os
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/localos
+ScriptFile=/usr/share/plymouth/themes/localos/localos.script

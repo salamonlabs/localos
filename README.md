@@ -67,12 +67,16 @@ e aprire `http://127.0.0.1:8088` (Wi-Fi e volume risulteranno vuoti fuori da loc
 
 Di default local:os è *live*: dimentica tutto allo spegnimento. Da **Impostazioni › Memoria persistente** si crea una memoria cifrata nello spazio libero della chiavetta:
 
-- viene aggiunta **una** partizione dopo l'immagine (tabella MBR, come nelle ISO Debian); il disco del computer non viene mai toccato;
+- viene aggiunta **una** partizione dopo l'immagine, nella tabella che il kernel usa davvero (GPT se l'MBR è protettivo o ibrido, altrimenti MBR); per la GPT vengono aggiornate entrambe le copie, principale e di riserva. Il disco del computer non viene mai toccato;
 - la partizione è cifrata con LUKS2 (Argon2id, 256 MB di memoria: sicura ma sopportabile dai PC vecchi) e contiene un ext4 con etichetta `persistence`;
 - `persistence.conf` salva `/home` (Documenti, note, impostazioni, browser) e le reti Wi-Fi;
-- a ogni avvio live-boot chiede la frase segreta. **Senza frase i dati non si recuperano.** Riscrivere la chiavetta con balenaEtcher cancella la memoria.
+- a ogni avvio con memoria compare la schermata grafica **Inserisci la frase segreta** (tema Plymouth `localos`). **Senza frase i dati non si recuperano.** Riscrivere la chiavetta con balenaEtcher cancella la memoria;
+- per entrare come ospite senza aprire la memoria: alla richiesta della frase premi **Invio**, poi **N** e **Invio**; oppure scegli la voce **ospite, senza memoria** nel menu di avvio. `Esc` mostra la versione testuale della schermata (utile per la diagnosi);
+- la barra in alto mostra sempre lo stato: **Memoria** (attiva), **Ospite** (memoria chiusa o avvio ospite), **Non salvata** (nessuna memoria), **Da riavviare** (appena creata);
+- al primo avvio senza memoria un **benvenuto** in tre passi aiuta a collegarsi alla rete e a creare la memoria. Senza memoria non può ricordarsi di essere già stato chiuso, quindi ricompare a ogni avvio finché la memoria non è creata (si chiude con "Salta tutto");
+- da **Impostazioni › Memoria persistente** si può **cambiare la frase segreta** (i dati non vengono toccati) o **cancellare la memoria**: le chiavi LUKS vengono distrutte (i dati diventano illeggibili per sempre), la partizione viene tolta dalla tabella e lo spazio torna libero. Per confermare bisogna scrivere `CANCELLA`.
 
-Lo script è `/usr/lib/localos/localos-persistence` (`check` / `create`); l'utente può eseguire solo quello come amministratore (`/etc/sudoers.d/localos`).
+Lo script è `/usr/lib/localos/localos-persistence` (`check` / `create` / `change` / `delete`); l'utente può eseguire solo quello come amministratore (`/etc/sudoers.d/localos`). La cancellazione tocca solo partizioni LUKS con etichetta `localos-persistence`, cioè create da local:os.
 
 ## Struttura
 
@@ -89,7 +93,9 @@ config/includes.chroot/         file copiati così come sono nel sistema
   etc/sysctl.d/                 irrobustimento del kernel
   etc/profile.d/                avvio dell'interfaccia grafica e tastiera
   usr/lib/localos/localos-shell.py   servizio locale
+  usr/lib/localos/localos-persistence  creazione e gestione della memoria cifrata
   usr/share/localos/shell/      interfaccia web (HTML/CSS/JS)
+  usr/share/plymouth/themes/localos/  schermate grafiche di avvio, frase segreta e spegnimento
 .github/workflows/              build automatica dell'ISO
 branding/localos-orbit-kit.zip  identità visiva completa (sorgente, compressa)
 branding/boot/                  sfondi del menu di avvio (1920×1080 GRUB, 640×480 BIOS)
@@ -114,11 +120,10 @@ Kit completo in `branding/localos-orbit-kit.zip` (regole d'uso in `06-guidelines
 
 ## Limiti attuali
 
-- Funziona **in modalità live**: le modifiche non restano dopo lo spegnimento. L'installazione su disco arriva nella Fase 4.
+- Funziona dalla chiavetta (live), con memoria cifrata facoltativa. L'installazione su disco arriva nella Fase 5.
 - Solo **PC a 64 bit** (amd64): Debian non supporta più l'installazione a 32 bit.
 - Include **firmware non libero** (ramo `non-free-firmware`) per far funzionare Wi-Fi e schede video dei portatili più comuni. Va dichiarato chiaramente quando si distribuisce.
 - Con il DNS cifrato rigoroso, le reti con pagina di accesso (hotel, treni) possono non aprirsi: vedi `90-localos-privacy.conf`.
-- Non è ancora stato provato su hardware reale: la prima build serve proprio a scoprire cosa manca.
 
 ## Prossime fasi
 
@@ -142,6 +147,9 @@ Kit completo in `branding/localos-orbit-kit.zip` (regole d'uso in `06-guidelines
    - Il desktop gira in Firefox in modalità kiosk; i siti si aprono in finestre normali del browser sopra il desktop (profilo separato)
    - App locali offline: **Note** (file Markdown in Documenti › Note), **File** (cartella Documenti), **Sincronizza** (Syncthing, da pari a pari), **Impostazioni**
    - I dati restano file in formati aperti: nessun blocco, nessun cloud obbligatorio
+   - ✅ Verificata su Lenovo E14 (UEFI, Secure Boot) e su desktop Acer del 2013 (BIOS, rete via cavo): memoria cifrata creata, frase chiesta all'avvio, dati conservati tra i riavvii
+   - 0.3.1: memoria preparata tutta alla creazione (niente lavoro in sottofondo che rallentava l'avvio), cache di Firefox in RAM e meno scritture sulla chiavetta, "Cavo" nella barra quando si è collegati via rete, voce di avvio **local:os – ospite, senza memoria**
+   - 0.3.2: schermate grafiche di avvio, sblocco della memoria e spegnimento (Plymouth) con le istruzioni in italiano per entrare come ospite; indicatore della memoria nella barra; benvenuto al primo avvio (rete, memoria); cambio della frase segreta e cancellazione della memoria da Impostazioni
    - Da fare in 0.3.x: Disegno (Excalidraw offline), app proprie con sincronizzazione CRDT (Automerge/Yjs), impostazioni di lingua, tastiera e luminosità, gestione download e aggiornamenti
 4. Versione 0.4 – vero desktop leggero (labwc): barra e dock sempre visibili, siti e app in finestre
 5. Installer su disco con cifratura completa (LUKS; Adiantum sui PC senza accelerazione AES) e pulizia di cookie/cronologia alla chiusura

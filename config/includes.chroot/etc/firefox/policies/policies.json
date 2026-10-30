@@ -138,6 +138,18 @@
       "browser.urlbar.suggest.searches": {
         "Value": false,
         "Status": "locked"
+      },
+      "browser.cache.disk.enable": {
+        "Value": false,
+        "Status": "locked"
+      },
+      "browser.cache.memory.enable": {
+        "Value": true,
+        "Status": "locked"
+      },
+      "browser.sessionstore.interval": {
+        "Value": 120000,
+        "Status": "default"
       }
     }
   }

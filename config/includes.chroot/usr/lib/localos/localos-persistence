@@ -4,6 +4,8 @@
 Uso (come root, tramite sudo):
   localos-persistence check            stato in JSON
   localos-persistence create < frase   crea la memoria (la frase arriva da stdin, senza a capo)
+  localos-persistence change < vecchia\0nuova   cambia la frase segreta
+  localos-persistence delete < CANCELLA       cancella la memoria (irrecuperabile) e libera lo spazio
 
 Cosa fa "create":
   1. trova la chiavetta da cui è partito local:os;
@@ -161,7 +163,8 @@ def layout(disk):
                     if gpt["arr"][i * gpt["esize"]:i * gpt["esize"] + 16] == b"\0" * 16), None)
         busy = [p["end"] + 1 for p in gpt["parts"]]
         busy += [e["start"] + e["count"] for e in mentries if e["count"] and e["type"] != 0xEE]
-        busy += [gpt["alt"] + 1]                          # vecchia GPT di riserva, alla fine dell'immagine
+        if gpt["alt"] < total - 1:
+            busy += [gpt["alt"] + 1]                      # vecchia GPT di riserva, alla fine dell'immagine
         start = align_up(max(busy))
         backup_entries = total - 1 - gpt["nsec"]
         last_usable = backup_entries - 1
@@ -187,14 +190,9 @@ def write_mbr_partition(disk, lay):
     write_at(disk, 0, bytes(mbr))
 
 
-def write_gpt_partition(disk, lay):
-    g, total = lay["gpt"], lay["total"]
-    i = lay["slot"] - 1
-    name = "localos-persistence".encode("utf-16-le").ljust(72, b"\0")
-    entry = (LINUX_FS_GUID.bytes_le + uuid.uuid4().bytes_le
-             + struct.pack("<QQQ", lay["start"], lay["start"] + lay["count"] - 1, 0) + name)
+def write_gpt_entries(disk, g, total):
+    """Riscrive le voci GPT (già modificate in g["arr"]) con controlli aggiornati: prima la riserva, poi la primaria."""
     arr = g["arr"]
-    arr[i * g["esize"]:(i + 1) * g["esize"]] = entry.ljust(g["esize"], b"\0")
     ecrc = zlib.crc32(arr) & 0xFFFFFFFF
     backup_entries = total - 1 - g["nsec"]
 
@@ -209,11 +207,43 @@ def write_gpt_partition(disk, lay):
         return bytes(h)
 
     padded = bytes(arr).ljust(g["nsec"] * SECTOR, b"\0")
-    # Prima la copia di riserva in fondo alla chiavetta, poi la primaria
     write_at(disk, backup_entries, padded)
     write_at(disk, total - 1, header(total - 1, 1, backup_entries))
     write_at(disk, g["ent_lba"], padded)
     write_at(disk, 1, header(1, total - 1, g["ent_lba"]))
+
+
+def write_gpt_partition(disk, lay):
+    g = lay["gpt"]
+    i = lay["slot"] - 1
+    name = "localos-persistence".encode("utf-16-le").ljust(72, b"\0")
+    entry = (LINUX_FS_GUID.bytes_le + uuid.uuid4().bytes_le
+             + struct.pack("<QQQ", lay["start"], lay["start"] + lay["count"] - 1, 0) + name)
+    g["arr"][i * g["esize"]:(i + 1) * g["esize"]] = entry.ljust(g["esize"], b"\0")
+    write_gpt_entries(disk, g, lay["total"])
+
+
+def remove_partition_entry(disk, lay, n):
+    """Toglie la voce n dalla tabella (MBR o GPT). I dati restano sui settori ma sono già illeggibili."""
+    if lay["kind"] == "gpt":
+        g = lay["gpt"]
+        g["arr"][(n - 1) * g["esize"]:n * g["esize"]] = b"\0" * g["esize"]
+        write_gpt_entries(disk, g, lay["total"])
+        # In un MBR ibrido la stessa partizione può comparire anche lì
+        mbr, changed = lay["mbr"], False
+        start = next(p["start"] for p in g["parts"] if p["n"] == n)
+        for k in range(4):
+            off = 446 + 16 * k
+            if mbr[off + 4] not in (0, 0xEE) and struct.unpack("<I", mbr[off + 8:off + 12])[0] == start:
+                mbr[off:off + 16] = b"\0" * 16
+                changed = True
+        if changed:
+            write_at(disk, 0, bytes(mbr))
+    else:
+        mbr = lay["mbr"]
+        off = 446 + 16 * (n - 1)
+        mbr[off:off + 16] = b"\0" * 16
+        write_at(disk, 0, bytes(mbr))
 
 
 def partition_path(disk, n):
@@ -223,13 +253,38 @@ def partition_path(disk, n):
 
 
 def find_existing(disk, lay):
+    """Restituisce (percorso, numero) della memoria cifrata di local:os sulla chiavetta, oppure None."""
     if TEST:
+        # Nei test su immagine: la voce che "create" ha aggiunto
+        if lay["kind"] == "gpt":
+            g = lay["gpt"]
+            for p in g["parts"]:
+                e = g["arr"][(p["n"] - 1) * g["esize"]:p["n"] * g["esize"]]
+                if e[56:128].decode("utf-16-le", errors="ignore").rstrip("\0") == "localos-persistence":
+                    return (None, p["n"])
+        else:
+            for n in lay["used"]:
+                off = 446 + 16 * (n - 1)
+                if lay["mbr"][off + 4] == 0x83 and n > 1:
+                    return (None, n)
         return None
     for n in lay["used"]:
         p = partition_path(disk, n)
         if os.path.exists(p) and run(["blkid", "-o", "value", "-s", "TYPE", p], check=False) == "crypto_LUKS":
-            return p
+            return (p, n)
     return None
+
+
+def read_two_phrases():
+    data = sys.stdin.buffer.read()
+    if data.count(b"\0") != 1:
+        raise RuntimeError("Dati non validi")
+    old, new = data.split(b"\0")
+    return old, new
+
+
+def phrase_ok(phrase):
+    return len(phrase.decode("utf-8", errors="ignore")) >= 8
 
 
 # ------------------------------------------------------------------ comandi
@@ -244,7 +299,7 @@ def cmd_check():
         out({"state": "unavailable", "message": str(e)})
     existing = find_existing(disk, lay)
     if existing:
-        out({"state": "locked", "device": existing,
+        out({"state": "locked", "device": existing[0],
              "message": "Esiste già una memoria cifrata su questa chiavetta: al prossimo avvio inserisci la frase segreta"})
     if lay["slot"] is None:
         out({"state": "unavailable", "message": "La tabella delle partizioni è piena"})
@@ -260,7 +315,7 @@ def cmd_create():
     phrase = sys.stdin.buffer.read()
     if phrase.endswith(b"\n"):
         phrase = phrase[:-1]
-    if len(phrase.decode("utf-8", errors="ignore")) < 8:
+    if not phrase_ok(phrase):
         out({"ok": False, "message": "La frase segreta deve avere almeno 8 caratteri"}, 1)
     try:
         if persistence_active():
@@ -298,7 +353,10 @@ def cmd_create():
         run(["cryptsetup", "open", "--key-file", "-", part, MAPPER], data=phrase)
         try:
             mapped = f"/dev/mapper/{MAPPER}"
-            run(["mkfs.ext4", "-q", "-L", "persistence", mapped])
+            # Tutto il lavoro di preparazione subito, alla creazione (niente lavoro in sottofondo
+            # nei primi avvii, che rallentava la chiavetta); meno inode e nessuno spazio riservato.
+            run(["mkfs.ext4", "-q", "-L", "persistence", "-m", "0", "-i", "65536",
+                 "-E", "lazy_itable_init=0,lazy_journal_init=0", mapped])
             mnt = tempfile.mkdtemp(prefix="localos-persist-")
             run(["mount", mapped, mnt])
             try:
@@ -315,6 +373,64 @@ def cmd_create():
         out({"ok": False, "message": str(e)}, 1)
 
 
+def cmd_change():
+    try:
+        old, new = read_two_phrases()
+        if not phrase_ok(new):
+            out({"ok": False, "message": "La nuova frase segreta deve avere almeno 8 caratteri"}, 1)
+        disk = boot_disk()
+        lay = layout(disk)
+        found = find_existing(disk, lay)
+        if not found:
+            raise RuntimeError("Su questa chiavetta non c'è una memoria cifrata")
+        if TEST:
+            out({"ok": True, "message": "test: frase cambiata", "slot": found[1]})
+        part = found[0]
+        if subprocess.run(["cryptsetup", "open", "--test-passphrase", "--key-file", "-", part],
+                          input=old, capture_output=True).returncode != 0:
+            out({"ok": False, "message": "La frase segreta attuale non è corretta"}, 1)
+        # La nuova frase passa da una pipe, mai da un file su disco
+        r_fd, w_fd = os.pipe()
+        os.write(w_fd, new)
+        os.close(w_fd)
+        try:
+            r = subprocess.run(["cryptsetup", "luksChangeKey", "--batch-mode",
+                                "--pbkdf", "argon2id", "--pbkdf-memory", "262144",
+                                "--key-file", "-", part, f"/proc/self/fd/{r_fd}"],
+                               input=old, capture_output=True, pass_fds=(r_fd,))
+        finally:
+            os.close(r_fd)
+        if r.returncode != 0:
+            raise RuntimeError("cryptsetup: " + (r.stderr.decode(errors="replace").strip() or "errore"))
+        out({"ok": True, "message": "Frase segreta cambiata: usala dal prossimo avvio."})
+    except RuntimeError as e:
+        out({"ok": False, "message": str(e)}, 1)
+
+
+def cmd_delete():
+    if sys.stdin.buffer.read().strip() != b"CANCELLA":
+        out({"ok": False, "message": "Conferma mancante"}, 1)
+    try:
+        disk = boot_disk()
+        lay = layout(disk)
+        found = find_existing(disk, lay)
+        if not found:
+            raise RuntimeError("Su questa chiavetta non c'è una memoria cifrata")
+        part, n = found
+        if not TEST:
+            label = run(["blkid", "-o", "value", "-s", "LABEL", part], check=False)
+            if label != "localos-persistence":
+                raise RuntimeError("La partizione cifrata non è stata creata da local:os: per sicurezza non la tocco")
+            # Distrugge le chiavi: da questo momento i dati sono illeggibili per sempre
+            run(["cryptsetup", "erase", "--batch-mode", part])
+            run(["wipefs", "-a", "-q", part], check=False)
+        remove_partition_entry(disk, lay, n)
+        out({"ok": True, "slot": n,
+             "message": "Memoria cancellata. Riavvia: local:os ripartirà come nuovo e potrai crearne un'altra."})
+    except RuntimeError as e:
+        out({"ok": False, "message": str(e)}, 1)
+
+
 if __name__ == "__main__":
     if os.geteuid() != 0 and not TEST:
         out({"ok": False, "message": "Servono i permessi di amministratore"}, 1)
@@ -323,5 +439,9 @@ if __name__ == "__main__":
         cmd_check()
     elif action == "create":
         cmd_create()
+    elif action == "change":
+        cmd_change()
+    elif action == "delete":
+        cmd_delete()
     else:
-        out({"ok": False, "message": "uso: localos-persistence check|create"}, 2)
+        out({"ok": False, "message": "uso: localos-persistence check|create|change|delete"}, 2)

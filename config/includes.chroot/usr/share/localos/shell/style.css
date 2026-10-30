@@ -224,6 +224,56 @@ kbd { font-family: var(--mono); font-size: 11px; padding: 2px 6px; border-radius
 /* ---------- avviso ---------- */
 .toast { position: fixed; z-index: 60; left: 50%; transform: translateX(-50%); top: 48px; padding: 10px 16px; border-radius: 12px; max-width: calc(100vw - 32px); background: var(--glass-strong); border: 1px solid var(--line); box-shadow: 0 14px 40px rgb(0 0 0 / 0.45); }
 
+/* ---------- 0.3.2: stato della memoria e benvenuto ---------- */
+.mb-mode { color: var(--muted); }
+.mb-mode.on { color: var(--cyan); }
+.mb-mode.guest { color: #F3C26B; }
+/* --- benvenuto al primo avvio --- */
+.welcome-back { position: fixed; inset: 0; z-index: 70; background: rgb(7 11 28 / 0.55); display: flex; align-items: center; justify-content: center; padding: 20px max(16px, env(safe-area-inset-left, 0px)); }
+.welcome { width: min(560px, 100%); max-height: calc(100vh - 40px); overflow: auto; border-radius: 18px; background: #111A2E; border: 1px solid var(--line); box-shadow: 0 30px 90px rgb(0 0 0 / 0.6); padding: 26px 28px 22px; }
+.steps { display: flex; gap: 6px; margin-bottom: 18px; }
+.steps span { flex: 1; height: 3px; border-radius: 3px; background: rgb(245 248 255 / 0.12); }
+.steps span.on { background: var(--cyan); }
+.welcome h2 { margin: 0 0 8px; font-size: 22px; font-weight: 600; text-wrap: balance; }
+.welcome p { margin: 0 0 12px; color: #D5DCEC; line-height: 1.55; }
+.welcome .eyebrow { margin: 0 0 6px; font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.welcome .row-actions { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 20px; flex-wrap: wrap; }
+.welcome .row-actions .right { display: flex; gap: 8px; margin-left: auto; }
+.wbtn { padding: 9px 16px; border-radius: 10px; border: 1px solid var(--line); background: rgb(245 248 255 / 0.06); }
+.wbtn:hover { border-color: rgb(32 201 232 / 0.6); }
+.wbtn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+.wbtn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+.wbtn:disabled { opacity: 0.5; cursor: default; }
+.choice { display: grid; gap: 10px; margin-top: 6px; }
+.choice button { text-align: left; padding: 14px 16px; border-radius: 12px; border: 1px solid var(--line); background: rgb(245 248 255 / 0.04); display: grid; gap: 3px; }
+.choice button strong { font-size: 15px; }
+.choice button span { color: var(--muted); font-size: 13px; line-height: 1.45; }
+.choice button.sel { border-color: var(--cyan); background: rgb(32 201 232 / 0.08); }
+.wfield { width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: rgb(7 11 28 / 0.55); margin-top: 8px; }
+.wnote { font-size: 13px; color: var(--muted); }
+.wnote.err { color: var(--danger); }
+.wnets { list-style: none; margin: 6px 0 0; padding: 0; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.wnets button { width: 100%; display: flex; justify-content: space-between; gap: 10px; padding: 11px 14px; border: 0; background: transparent; text-align: left; }
+.wnets li + li button { border-top: 1px solid var(--line); }
+.wnets button:hover { background: rgb(245 248 255 / 0.06); }
+.wnets button.on { color: var(--cyan); font-weight: 600; }
+.wnets .meta { color: var(--muted); font-size: 12px; }
+.tips { list-style: none; margin: 4px 0 0; padding: 0; display: grid; gap: 10px; }
+.tips li { display: flex; gap: 12px; align-items: flex-start; color: #D5DCEC; }
+.tips li b { flex: none; min-width: 92px; color: var(--ice); font-weight: 600; }
+
+/* --- impostazioni memoria --- */
+.mem-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.mem-box { margin-top: 12px; display: grid; gap: 8px; max-width: 420px; }
+.welcome .mem-box { max-width: none; }
+
+.wpass { padding: 4px 14px 12px; }
+.bar.wide { width: 100%; height: 4px; border-radius: 4px; background: rgb(245 248 255 / 0.12); overflow: hidden; }
+.bar.wide i { display: block; height: 100%; width: 35%; border-radius: 4px; background: linear-gradient(90deg, #8055EF, var(--blue), var(--cyan)); }
+.bar.busy i { animation: busy 1.6s ease-in-out infinite; }
+@keyframes busy { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
+@media (prefers-reduced-motion: reduce) { .bar.busy i { animation: none; width: 100%; opacity: 0.6; } }
+
 @media (max-width: 720px) {
   .mb-hide-sm, .mb-app { display: none; }
   .notes { grid-template-columns: 1fr; }

@@ -1,0 +1,152 @@
+# local:os – tema Plymouth (avvio, sblocco della memoria, spegnimento).
+# I testi sono immagini già pronte: la schermata non dipende dai font disponibili all'avvio.
+
+Window.SetBackgroundTopColor(0.043, 0.067, 0.133);      # Notte profonda #0B1122
+Window.SetBackgroundBottomColor(0.063, 0.094, 0.173);   # Notte #10182C
+
+global.W = Window.GetWidth();
+global.H = Window.GetHeight();
+global.X0 = Window.GetX();
+global.Y0 = Window.GetY();
+global.CX = global.X0 + global.W / 2;
+global.LOGO_CY = global.Y0 + global.H * 0.34;
+
+# ---------------------------------------------------------------- immagini
+logo_img = Image("logo.png");
+dot_img = Image("dot.png");
+word_img = Image("word.png");
+title_img = Image("title.png");
+sub_img = Image("sub.png");
+hint_img = Image("hint.png");
+retry_img = Image("retry.png");
+retry2_img = Image("retry2.png");
+box_img = Image("box.png");
+global.bullet_img = Image("bullet.png");
+barbg_img = Image("bar-bg.png");
+global.bar_img = Image("bar.png");
+
+fun place(sprite, image, cx, top, z) {
+  sprite.SetImage(image);
+  sprite.SetPosition(cx - image.GetWidth() / 2, top, z);
+}
+
+# ---------------------------------------------------------------- logo e punto in orbita
+global.logo = Sprite();
+place(global.logo, logo_img, global.CX, global.LOGO_CY - logo_img.GetHeight() / 2, 10);
+global.LOGO_BOTTOM = global.LOGO_CY + logo_img.GetHeight() / 2;
+global.R = logo_img.GetWidth() * 83 / 256;           # raggio dell'anello nel disegno originale
+global.HOME = -Math.Pi / 4;                           # posizione del punto: in alto a destra
+global.angle = global.HOME;
+global.dot = Sprite(dot_img);
+global.dot.SetZ(11);
+
+fun put_dot(a) {
+  global.dot.SetX(global.CX + global.R * Math.Cos(a) - 7);
+  global.dot.SetY(global.LOGO_CY + global.R * Math.Sin(a) - 7);
+}
+put_dot(global.angle);
+
+# ---------------------------------------------------------------- avvio normale
+global.word = Sprite();
+place(global.word, word_img, global.CX, global.LOGO_BOTTOM + 18, 10);
+global.BAR_TOP = global.LOGO_BOTTOM + 18 + word_img.GetHeight() + 34;
+global.barbg = Sprite();
+place(global.barbg, barbg_img, global.CX, global.BAR_TOP, 10);
+global.bar = Sprite();
+global.bar.SetPosition(global.CX - 110, global.BAR_TOP, 11);
+global.progress = 0;
+
+# ---------------------------------------------------------------- richiesta della frase
+global.TITLE_TOP = global.LOGO_BOTTOM + 30;
+global.title = Sprite(); place(global.title, title_img, global.CX, global.TITLE_TOP, 20);
+global.sub = Sprite(); place(global.sub, sub_img, global.CX, global.TITLE_TOP + title_img.GetHeight() + 6, 20);
+global.retry = Sprite(); place(global.retry, retry_img, global.CX, global.TITLE_TOP + 6, 20);
+global.retry2 = Sprite(); place(global.retry2, retry2_img, global.CX, global.TITLE_TOP + 6 + retry_img.GetHeight() + 8, 20);
+global.BOX_TOP = global.TITLE_TOP + title_img.GetHeight() + 6 + sub_img.GetHeight() + 22;
+global.box = Sprite(); place(global.box, box_img, global.CX, global.BOX_TOP, 20);
+global.hint = Sprite(); place(global.hint, hint_img, global.CX, global.BOX_TOP + box_img.GetHeight() + 18, 20);
+global.bullets = [];
+global.MAX_BULLETS = 24;
+
+fun show_prompt(question) {
+  global.word.SetOpacity(0); global.barbg.SetOpacity(0); global.bar.SetOpacity(0);
+  global.box.SetOpacity(1); global.hint.SetOpacity(1);
+  if (question) {
+    global.title.SetOpacity(0); global.sub.SetOpacity(0);
+    global.retry.SetOpacity(1); global.retry2.SetOpacity(1);
+  } else {
+    global.title.SetOpacity(1); global.sub.SetOpacity(1);
+    global.retry.SetOpacity(0); global.retry2.SetOpacity(0);
+  }
+}
+
+fun hide_prompt() {
+  global.title.SetOpacity(0); global.sub.SetOpacity(0);
+  global.retry.SetOpacity(0); global.retry2.SetOpacity(0);
+  global.box.SetOpacity(0); global.hint.SetOpacity(0);
+  set_bullets(0);
+  global.word.SetOpacity(1); global.barbg.SetOpacity(1); global.bar.SetOpacity(1);
+}
+
+fun set_bullets(n) {
+  if (n > global.MAX_BULLETS) n = global.MAX_BULLETS;
+  gap = 18;
+  left = global.CX - (n * gap) / 2 + 3;
+  for (i = 0; i < global.MAX_BULLETS; i++) {
+    if (!global.bullets[i]) {
+      global.bullets[i] = Sprite(global.bullet_img);
+      global.bullets[i].SetZ(21);
+    }
+    if (i < n) {
+      global.bullets[i].SetPosition(left + i * gap, global.BOX_TOP + 22, 21);
+      global.bullets[i].SetOpacity(1);
+    } else {
+      global.bullets[i].SetOpacity(0);
+    }
+  }
+}
+
+global.prompting = 0;
+
+fun password_cb(prompt, count) {
+  global.prompting = 1;
+  global.angle = global.HOME; put_dot(global.angle);
+  show_prompt(0);
+  set_bullets(count);
+}
+
+fun question_cb(prompt, entry) {
+  # L'unica domanda di live-boot è "riprovare?": la mostriamo in italiano
+  global.prompting = 1;
+  global.angle = global.HOME; put_dot(global.angle);
+  show_prompt(1);
+  if (entry == "") set_bullets(0); else set_bullets(1);
+}
+
+fun normal_cb() {
+  global.prompting = 0;
+  hide_prompt();
+}
+
+fun progress_cb(duration, progress) {
+  global.progress = progress;
+  w = Math.Int(220 * progress);
+  if (w < 1) w = 1;
+  global.bar.SetImage(global.bar_img.Scale(w, 4));
+}
+
+fun refresh_cb() {
+  if (!global.prompting) {
+    global.angle = global.angle + 0.07;
+    put_dot(global.angle);
+  }
+}
+
+hide_prompt();
+progress_cb(0, 0);
+
+Plymouth.SetDisplayPasswordFunction(password_cb);
+Plymouth.SetDisplayQuestionFunction(question_cb);
+Plymouth.SetDisplayNormalFunction(normal_cb);
+Plymouth.SetBootProgressFunction(progress_cb);
+Plymouth.SetRefreshFunction(refresh_cb);

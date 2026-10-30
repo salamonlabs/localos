@@ -20,6 +20,9 @@ chmod 0755 /usr/local/bin/localos-session /usr/lib/localos/localos-shell.py /usr
 chmod 0440 /etc/sudoers.d/localos
 
 # Memoria cifrata: cryptsetup sempre incluso nell'initramfs, anche senza /etc/crypttab
+# Tema grafico local:os (avvio, richiesta della frase segreta, spegnimento)
+plymouth-set-default-theme localos || echo "AVVISO local:os: tema Plymouth non impostato"
+
 echo "CRYPTSETUP=y" >> /etc/cryptsetup-initramfs/conf-hook
 update-initramfs -u -k all || echo "AVVISO local:os: update-initramfs non riuscito, la memoria cifrata potrebbe non aprirsi all'avvio"
 
@@ -33,7 +36,7 @@ sed -i -e 's/^pool /#pool /' -e 's|^sourcedir /run/chrony-dhcp|#sourcedir /run/c
 systemctl enable chrony.service
 
 # Versione
-echo "0.3" > /etc/localos-release
+echo "0.3.2" > /etc/localos-release
 
 # Lingua italiana di default
 sed -i 's/^# *it_IT.UTF-8/it_IT.UTF-8/' /etc/locale.gen

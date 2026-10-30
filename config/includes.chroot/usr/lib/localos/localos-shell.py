@@ -29,6 +29,7 @@ BROWSER = os.environ.get("LOCALOS_BROWSER", "firefox-esr")
 WEB_PROFILE = os.environ.get("LOCALOS_WEB_PROFILE", str(Path.home() / ".local/share/localos/web-profile"))
 PERSIST_HELPER = os.environ.get("LOCALOS_PERSIST_HELPER", "/usr/lib/localos/localos-persistence")
 SUDO = os.environ.get("LOCALOS_SUDO", "sudo -n").split()   # solo i test lo cambiano
+CMDLINE = Path(os.environ.get("LOCALOS_CMDLINE", "/proc/cmdline"))  # solo i test lo cambiano
 NOTE_NAME = re.compile(r"^[^/\\\x00-\x1f.][^/\\\x00-\x1f]{0,79}$")
 
 MIME = {
@@ -112,6 +113,12 @@ def battery():
     return None
 
 
+def wired():
+    """True se c'è una connessione via cavo attiva."""
+    code, out, _ = run(["nmcli", "-t", "-f", "TYPE,STATE", "device"])
+    return code == 0 and any(l.startswith("ethernet:connected") for l in out.splitlines())
+
+
 def version():
     try:
         return Path("/etc/localos-release").read_text().strip()
@@ -126,9 +133,17 @@ def persistence_active():
         return False
 
 
+def guest_boot():
+    """True se è stata scelta la voce di avvio "ospite, senza memoria" (niente "persistence" all'avvio)."""
+    try:
+        return "persistence" not in CMDLINE.read_text().split()
+    except OSError:
+        return False
+
+
 def status():
-    return {"wifi": wifi_networks(), "volume": volume(), "battery": battery(),
-            "version": version(), "persistent": persistence_active()}
+    return {"wifi": wifi_networks(), "wired": wired(), "volume": volume(), "battery": battery(),
+            "version": version(), "persistent": persistence_active(), "guest_boot": guest_boot()}
 
 
 # ---------------------------------------------------------------- documenti e note
@@ -316,6 +331,25 @@ def act_persistence_create(data):
     return persistence_helper("create", stdin=phrase.encode("utf-8"), timeout=300)
 
 
+def act_persistence_change(data):
+    old, new = str(data.get("old", "")), str(data.get("new", ""))
+    if not old:
+        return {"ok": False, "message": "Scrivi la frase segreta attuale"}
+    if len(new) < 8:
+        return {"ok": False, "message": "La nuova frase segreta deve avere almeno 8 caratteri"}
+    if new == old:
+        return {"ok": False, "message": "La nuova frase è uguale a quella attuale"}
+    if "\0" in old or "\0" in new:
+        return {"ok": False, "message": "Carattere non valido nella frase"}
+    return persistence_helper("change", stdin=old.encode("utf-8") + b"\0" + new.encode("utf-8"), timeout=120)
+
+
+def act_persistence_delete(data):
+    if data.get("confirm") != "CANCELLA":
+        return {"ok": False, "message": "Per confermare scrivi CANCELLA"}
+    return persistence_helper("delete", stdin=b"CANCELLA", timeout=120)
+
+
 ACTIONS = {
     "/api/open": act_open,
     "/api/files": act_files,
@@ -326,6 +360,8 @@ ACTIONS = {
     "/api/notes/delete": act_notes_delete,
     "/api/persistence/check": act_persistence_check,
     "/api/persistence/create": act_persistence_create,
+    "/api/persistence/change": act_persistence_change,
+    "/api/persistence/delete": act_persistence_delete,
     "/api/wifi/scan": act_wifi_scan,
     "/api/wifi/connect": act_wifi_connect,
     "/api/volume": act_volume,
