@@ -7,7 +7,8 @@ Uso (come root, tramite sudo):
 
 Cosa fa "create":
   1. trova la chiavetta da cui è partito local:os;
-  2. aggiunge UNA partizione nello spazio libero dopo l'immagine (tabella MBR, come le ISO Debian);
+  2. aggiunge UNA partizione nello spazio libero dopo l'immagine, nella tabella che il kernel
+     usa davvero: GPT se l'MBR è protettivo/ibrido (contiene una voce 0xEE), altrimenti MBR;
   3. la cifra con LUKS2, ci crea un file system ext4 con etichetta "persistence"
      e scrive persistence.conf: live-boot la userà dal prossimo avvio.
 Non tocca mai il disco interno del computer né le partizioni esistenti.
@@ -19,6 +20,8 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
+import zlib
 
 SECTOR = 512
 ALIGN = 2048                      # 1 MiB
@@ -28,6 +31,7 @@ PERSISTENCE_CONF = (
     "/home union\n"
     "/etc/NetworkManager/system-connections union\n"
 )
+LINUX_FS_GUID = uuid.UUID("0FC63DAF-8483-4772-8E79-3D69D8477DE4")
 TEST = os.environ.get("LOCALOS_PERSIST_TEST")   # solo per i test: percorso di un'immagine disco
 
 
@@ -41,6 +45,10 @@ def run(cmd, data=None, check=True):
 def out(obj, code=0):
     print(json.dumps(obj))
     sys.exit(code)
+
+
+def align_up(x):
+    return (x + ALIGN - 1) // ALIGN * ALIGN
 
 
 # ------------------------------------------------------------------ dispositivo
@@ -71,29 +79,141 @@ def boot_disk():
     return disk
 
 
-def disk_size(disk):
+def disk_sectors(disk):
     if TEST:
-        return os.path.getsize(disk)
+        return os.path.getsize(disk) // SECTOR
     with open(disk, "rb") as f:
-        return f.seek(0, os.SEEK_END)
+        return f.seek(0, os.SEEK_END) // SECTOR
 
+
+def read_at(disk, lba, n=1):
+    with open(disk, "rb") as f:
+        f.seek(lba * SECTOR)
+        return f.read(n * SECTOR)
+
+
+def write_at(disk, lba, data):
+    with open(disk, "r+b") as f:
+        f.seek(lba * SECTOR)
+        f.write(data)
+        f.flush()
+        os.fsync(f.fileno())
+
+
+# ------------------------------------------------------------------ tabelle delle partizioni
 
 def read_mbr(disk):
-    with open(disk, "rb") as f:
-        mbr = f.read(SECTOR)
-        lba1 = f.read(SECTOR)
+    mbr = read_at(disk, 0)
     if len(mbr) < SECTOR or mbr[510:512] != b"\x55\xaa":
         raise RuntimeError("La chiavetta non ha una tabella delle partizioni riconosciuta")
     entries = []
     for i in range(4):
         e = mbr[446 + 16 * i: 446 + 16 * (i + 1)]
-        ptype = e[4]
         start, count = struct.unpack("<II", e[8:16])
-        entries.append({"n": i + 1, "type": ptype, "start": start, "count": count})
-    if any(e["type"] == 0xEE for e in entries) or lba1[:8] == b"EFI PART":
-        # Le ISO Debian usano MBR; una tabella GPT non è prevista e non la tocchiamo.
-        raise RuntimeError("Tabella delle partizioni GPT non supportata (attesa MBR dell'immagine local:os)")
-    return mbr, entries
+        entries.append({"n": i + 1, "type": e[4], "start": start, "count": count})
+    return bytearray(mbr), entries
+
+
+def read_gpt(disk):
+    """Legge la GPT primaria e ne verifica i controlli; restituisce None se non è valida."""
+    hdr = read_at(disk, 1)
+    if hdr[:8] != b"EFI PART":
+        return None
+    hsize = struct.unpack("<I", hdr[12:16])[0]
+    if not 92 <= hsize <= SECTOR:
+        return None
+    h = bytearray(hdr[:hsize])
+    stored = struct.unpack("<I", h[16:20])[0]
+    h[16:20] = b"\0\0\0\0"
+    if zlib.crc32(h) & 0xFFFFFFFF != stored:
+        return None
+    alt, first, last = struct.unpack("<QQQ", hdr[32:56])
+    ent_lba, num, esize, ecrc = struct.unpack("<QIII", hdr[72:92])
+    if esize < 128 or num == 0 or num > 1024:
+        return None
+    nsec = (num * esize + SECTOR - 1) // SECTOR
+    arr = bytearray(read_at(disk, ent_lba, nsec)[:num * esize])
+    if zlib.crc32(arr) & 0xFFFFFFFF != ecrc:
+        return None
+    parts = []
+    for i in range(num):
+        e = arr[i * esize:(i + 1) * esize]
+        if e[:16] == b"\0" * 16:
+            continue
+        s, l = struct.unpack("<QQ", e[32:48])
+        parts.append({"n": i + 1, "start": s, "end": l})
+    return {"hdr": bytearray(hdr[:SECTOR]), "hsize": hsize, "alt": alt, "first": first, "last": last,
+            "ent_lba": ent_lba, "num": num, "esize": esize, "nsec": nsec, "arr": arr, "parts": parts}
+
+
+def layout(disk):
+    """Decide quale tabella usa il kernel e prepara il piano per la nuova partizione."""
+    mbr, mentries = read_mbr(disk)
+    total = disk_sectors(disk)
+    protective = any(e["type"] == 0xEE for e in mentries)
+    gpt = read_gpt(disk)
+
+    if protective:
+        # MBR protettivo o ibrido: il kernel legge la GPT
+        if gpt is None:
+            raise RuntimeError("La tabella GPT della chiavetta non è valida: per sicurezza non la modifico")
+        idx = next((i for i in range(gpt["num"])
+                    if gpt["arr"][i * gpt["esize"]:i * gpt["esize"] + 16] == b"\0" * 16), None)
+        busy = [p["end"] + 1 for p in gpt["parts"]]
+        busy += [e["start"] + e["count"] for e in mentries if e["count"] and e["type"] != 0xEE]
+        busy += [gpt["alt"] + 1]                          # vecchia GPT di riserva, alla fine dell'immagine
+        start = align_up(max(busy))
+        backup_entries = total - 1 - gpt["nsec"]
+        last_usable = backup_entries - 1
+        end = (last_usable + 1) // ALIGN * ALIGN - 1
+        count = end - start + 1
+        return {"kind": "gpt", "total": total, "slot": idx + 1 if idx is not None else None,
+                "start": start, "count": count, "gpt": gpt, "mbr": mbr,
+                "used": [p["n"] for p in gpt["parts"]]}
+
+    # Solo MBR (eventuale GPT senza voce 0xEE viene ignorata dal kernel)
+    used = [e for e in mentries if e["count"] > 0]
+    slot = next((e["n"] for e in mentries if e["count"] == 0 and e["type"] == 0), None)
+    start = align_up(max((e["start"] + e["count"] for e in used), default=ALIGN))
+    count = (total - start) // ALIGN * ALIGN
+    return {"kind": "mbr", "total": total, "slot": slot, "start": start, "count": count,
+            "mbr": mbr, "used": [e["n"] for e in used]}
+
+
+def write_mbr_partition(disk, lay):
+    mbr = lay["mbr"]
+    off = 446 + 16 * (lay["slot"] - 1)
+    mbr[off:off + 16] = bytes([0x00, 0xFE, 0xFF, 0xFF, 0x83, 0xFE, 0xFF, 0xFF]) + struct.pack("<II", lay["start"], lay["count"])
+    write_at(disk, 0, bytes(mbr))
+
+
+def write_gpt_partition(disk, lay):
+    g, total = lay["gpt"], lay["total"]
+    i = lay["slot"] - 1
+    name = "localos-persistence".encode("utf-16-le").ljust(72, b"\0")
+    entry = (LINUX_FS_GUID.bytes_le + uuid.uuid4().bytes_le
+             + struct.pack("<QQQ", lay["start"], lay["start"] + lay["count"] - 1, 0) + name)
+    arr = g["arr"]
+    arr[i * g["esize"]:(i + 1) * g["esize"]] = entry.ljust(g["esize"], b"\0")
+    ecrc = zlib.crc32(arr) & 0xFFFFFFFF
+    backup_entries = total - 1 - g["nsec"]
+
+    def header(my, alt, ent_lba):
+        h = bytearray(g["hdr"])
+        struct.pack_into("<QQ", h, 24, my, alt)
+        struct.pack_into("<Q", h, 48, backup_entries - 1)        # ultimo settore utilizzabile
+        struct.pack_into("<Q", h, 72, ent_lba)
+        struct.pack_into("<I", h, 88, ecrc)
+        h[16:20] = b"\0\0\0\0"
+        struct.pack_into("<I", h, 16, zlib.crc32(h[:g["hsize"]]) & 0xFFFFFFFF)
+        return bytes(h)
+
+    padded = bytes(arr).ljust(g["nsec"] * SECTOR, b"\0")
+    # Prima la copia di riserva in fondo alla chiavetta, poi la primaria
+    write_at(disk, backup_entries, padded)
+    write_at(disk, total - 1, header(total - 1, 1, backup_entries))
+    write_at(disk, g["ent_lba"], padded)
+    write_at(disk, 1, header(1, total - 1, g["ent_lba"]))
 
 
 def partition_path(disk, n):
@@ -102,22 +222,14 @@ def partition_path(disk, n):
     return f"{disk}p{n}" if disk[-1].isdigit() else f"{disk}{n}"
 
 
-def plan(disk):
-    """Calcola dove andrebbe la nuova partizione."""
-    _, entries = read_mbr(disk)
-    used = [e for e in entries if e["count"] > 0]
-    free_slot = next((e["n"] for e in entries if e["count"] == 0 and e["type"] == 0), None)
-    end = max((e["start"] + e["count"] for e in used), default=ALIGN)
-    start = (end + ALIGN - 1) // ALIGN * ALIGN
-    total = disk_size(disk) // SECTOR
-    count = (total - start) // ALIGN * ALIGN
-    existing = None
-    if not TEST:
-        for e in used:
-            p = partition_path(disk, e["n"])
-            if os.path.exists(p) and run(["blkid", "-o", "value", "-s", "TYPE", p], check=False) == "crypto_LUKS":
-                existing = p
-    return {"slot": free_slot, "start": start, "count": count, "free_bytes": max(count, 0) * SECTOR, "existing": existing}
+def find_existing(disk, lay):
+    if TEST:
+        return None
+    for n in lay["used"]:
+        p = partition_path(disk, n)
+        if os.path.exists(p) and run(["blkid", "-o", "value", "-s", "TYPE", p], check=False) == "crypto_LUKS":
+            return p
+    return None
 
 
 # ------------------------------------------------------------------ comandi
@@ -127,32 +239,21 @@ def cmd_check():
         out({"state": "active", "message": "Memoria persistente attiva"})
     try:
         disk = boot_disk()
-        p = plan(disk)
+        lay = layout(disk)
     except RuntimeError as e:
         out({"state": "unavailable", "message": str(e)})
-    if p["existing"]:
-        out({"state": "locked", "device": p["existing"],
+    existing = find_existing(disk, lay)
+    if existing:
+        out({"state": "locked", "device": existing,
              "message": "Esiste già una memoria cifrata su questa chiavetta: al prossimo avvio inserisci la frase segreta"})
-    if p["slot"] is None:
+    if lay["slot"] is None:
         out({"state": "unavailable", "message": "La tabella delle partizioni è piena"})
-    if p["free_bytes"] < MIN_FREE:
-        out({"state": "unavailable", "free_bytes": p["free_bytes"],
+    free = max(lay["count"], 0) * SECTOR
+    if free < MIN_FREE:
+        out({"state": "unavailable", "free_bytes": free, "table": lay["kind"],
              "message": "Spazio libero insufficiente sulla chiavetta (serve almeno 1 GB)"})
-    out({"state": "available", "disk": disk, "free_bytes": p["free_bytes"],
+    out({"state": "available", "disk": disk, "free_bytes": free, "table": lay["kind"],
          "message": "Puoi creare una memoria cifrata nello spazio libero della chiavetta"})
-
-
-def write_partition(disk, slot, start, count):
-    mbr, _ = read_mbr(disk)
-    mbr = bytearray(mbr)
-    off = 446 + 16 * (slot - 1)
-    # CHS non usato (valori "fuori range" standard), tipo 0x83 Linux, LBA e numero di settori
-    mbr[off:off + 16] = bytes([0x00, 0xFE, 0xFF, 0xFF, 0x83, 0xFE, 0xFF, 0xFF]) + struct.pack("<II", start, count)
-    with open(disk, "r+b") as f:
-        f.seek(0)
-        f.write(bytes(mbr))
-        f.flush()
-        os.fsync(f.fileno())
 
 
 def cmd_create():
@@ -165,26 +266,30 @@ def cmd_create():
         if persistence_active():
             raise RuntimeError("La memoria persistente è già attiva")
         disk = boot_disk()
-        p = plan(disk)
-        if p["existing"]:
+        lay = layout(disk)
+        if find_existing(disk, lay):
             raise RuntimeError("Su questa chiavetta esiste già una memoria cifrata")
-        if p["slot"] is None or p["free_bytes"] < MIN_FREE:
+        if lay["slot"] is None or lay["count"] * SECTOR < MIN_FREE:
             raise RuntimeError("Spazio libero insufficiente o tabella delle partizioni piena")
 
-        write_partition(disk, p["slot"], p["start"], p["count"])
+        if lay["kind"] == "gpt":
+            write_gpt_partition(disk, lay)
+        else:
+            write_mbr_partition(disk, lay)
         if TEST:
-            out({"ok": True, "message": "test: partizione scritta", "slot": p["slot"], "start": p["start"], "count": p["count"]})
+            out({"ok": True, "message": "test: partizione scritta", "table": lay["kind"],
+                 "slot": lay["slot"], "start": lay["start"], "count": lay["count"]})
 
         # Il sistema è in uso: si aggiunge solo la nuova partizione, senza rileggere le altre
-        run(["partx", "-a", "--nr", str(p["slot"]), disk], check=False)
-        part = partition_path(disk, p["slot"])
+        run(["partx", "-a", "--nr", str(lay["slot"]), disk], check=False)
+        part = partition_path(disk, lay["slot"])
         run(["udevadm", "settle"], check=False)
         for _ in range(50):
             if os.path.exists(part):
                 break
             time.sleep(0.2)
         else:
-            raise RuntimeError("Il sistema non vede la nuova partizione: riavvia e riprova")
+            raise RuntimeError("Il sistema non vede ancora la nuova partizione: riavvia e riprova da Impostazioni")
 
         # Argon2id con 256 MB di memoria: sicuro e sopportabile anche dai PC vecchi all'avvio
         run(["cryptsetup", "luksFormat", "--type", "luks2", "--batch-mode",
@@ -204,7 +309,7 @@ def cmd_create():
                 os.rmdir(mnt)
         finally:
             run(["cryptsetup", "close", MAPPER], check=False)
-        size_gb = p["free_bytes"] / 1024 ** 3
+        size_gb = lay["count"] * SECTOR / 1024 ** 3
         out({"ok": True, "message": f"Memoria cifrata creata ({size_gb:.1f} GB). Riavvia: all'avvio local:os ti chiederà la frase segreta."})
     except RuntimeError as e:
         out({"ok": False, "message": str(e)}, 1)
